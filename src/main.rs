@@ -28,35 +28,23 @@ fn main() -> Result<()> {
             container.as_deref(),
             cli.json,
             cli.csv,
-            cli.quiet,
             db_path,
         ),
 
-        Commands::Find { query } => {
-            commands::find::run(&query, cli.json, cli.csv, cli.quiet, db_path)
-        }
+        Commands::Find { query } => commands::find::run(&query, cli.json, cli.csv, db_path),
 
         Commands::List {
             container,
             recursive,
-        } => commands::list::run(
-            container.as_deref(),
-            recursive,
-            cli.json,
-            cli.csv,
-            cli.quiet,
-            db_path,
-        ),
+        } => commands::list::run(container.as_deref(), recursive, cli.json, cli.csv, db_path),
 
-        Commands::Show { item } => {
-            commands::show::run(&item, cli.json, cli.csv, cli.quiet, db_path)
-        }
+        Commands::Show { item } => commands::show::run(&item, cli.json, cli.csv, db_path),
 
         Commands::Mv { item, destination } => {
-            commands::mv::run(&item, &destination, cli.json, cli.csv, cli.quiet, db_path)
+            commands::mv::run(&item, &destination, cli.json, cli.csv, db_path)
         }
 
-        Commands::Rm { item } => commands::rm::run(&item, cli.json, cli.csv, cli.quiet, db_path),
+        Commands::Rm { item } => commands::rm::run(&item, cli.json, cli.csv, db_path),
 
         Commands::Edit { item, name, desc } => commands::edit::run(
             &item,
@@ -64,7 +52,6 @@ fn main() -> Result<()> {
             desc.as_deref(),
             cli.json,
             cli.csv,
-            cli.quiet,
             db_path,
         ),
     }

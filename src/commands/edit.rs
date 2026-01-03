@@ -16,7 +16,6 @@ use crate::output::{self, Format};
 /// * `desc` - Optional new description (use "" to clear)
 /// * `json` - Output as JSON
 /// * `csv` - Output as CSV
-/// * `quiet` - Minimal output
 /// * `db_path` - Optional custom database path
 pub fn run(
     item_ref: &str,
@@ -24,7 +23,6 @@ pub fn run(
     new_desc: Option<&str>,
     json: bool,
     csv: bool,
-    quiet: bool,
     db_path: Option<&Path>,
 ) -> Result<()> {
     let conn = db::open(db_path)?;
@@ -60,11 +58,6 @@ pub fn run(
     if let Some(desc) = new_desc {
         let desc_value = if desc.is_empty() { None } else { Some(desc) };
         db::update_item_description(&conn, item.id, desc_value)?;
-    }
-
-    if quiet {
-        println!("{}", item.id);
-        return Ok(());
     }
 
     // Get updated item for display

@@ -43,7 +43,6 @@ All commands support these flags:
 |------|-------|-------------|
 | `--json` | `-j` | Output as JSON |
 | `--csv` | | Output as CSV |
-| `--quiet` | `-q` | Minimal output (IDs only) |
 | `--db <path>` | | Use custom database file |
 
 **Default database location:** `~/.invy.db`

@@ -23,10 +23,6 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub csv: bool,
 
-    /// Minimal output (IDs only)
-    #[arg(short, long, global = true)]
-    pub quiet: bool,
-
     /// Use custom database file
     #[arg(long, global = true)]
     pub db: Option<PathBuf>,

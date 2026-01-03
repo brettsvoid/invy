@@ -14,20 +14,12 @@ use crate::output::{self, Format};
 /// * `query` - Search term (substring match, case-insensitive)
 /// * `json` - Output as JSON
 /// * `csv` - Output as CSV
-/// * `quiet` - Minimal output
 /// * `db_path` - Optional custom database path
-pub fn run(query: &str, json: bool, csv: bool, quiet: bool, db_path: Option<&Path>) -> Result<()> {
+pub fn run(query: &str, json: bool, csv: bool, db_path: Option<&Path>) -> Result<()> {
     let conn = db::open(db_path)?;
     let format = Format::from_flags(json, csv);
 
     let items = db::search_items(&conn, query)?;
-
-    if quiet {
-        for item in &items {
-            println!("{}", item.id);
-        }
-        return Ok(());
-    }
 
     // Convert to ItemWithPath for display
     let items_with_path: Vec<_> = items

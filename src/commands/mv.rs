@@ -15,14 +15,12 @@ use crate::output::{self, Format};
 /// * `destination` - Target container (use "/" for root)
 /// * `json` - Output as JSON
 /// * `csv` - Output as CSV
-/// * `quiet` - Minimal output
 /// * `db_path` - Optional custom database path
 pub fn run(
     item_ref: &str,
     destination: &str,
     json: bool,
     csv: bool,
-    quiet: bool,
     db_path: Option<&Path>,
 ) -> Result<()> {
     let conn = db::open(db_path)?;
@@ -77,11 +75,6 @@ pub fn run(
 
     // Perform the move
     db::move_item(&conn, item.id, new_container_id)?;
-
-    if quiet {
-        println!("{}", item.id);
-        return Ok(());
-    }
 
     // Get updated item for display
     let updated_item = db::get_item_by_id(&conn, item.id)?

@@ -16,15 +16,8 @@ use crate::output::{self, Format};
 /// * `item` - Item to remove
 /// * `json` - Output as JSON
 /// * `csv` - Output as CSV
-/// * `quiet` - Minimal output
 /// * `db_path` - Optional custom database path
-pub fn run(
-    item_ref: &str,
-    json: bool,
-    csv: bool,
-    quiet: bool,
-    db_path: Option<&Path>,
-) -> Result<()> {
+pub fn run(item_ref: &str, json: bool, csv: bool, db_path: Option<&Path>) -> Result<()> {
     let conn = db::open(db_path)?;
     let format = Format::from_flags(json, csv);
 
@@ -41,11 +34,6 @@ pub fn run(
     // The ON DELETE SET NULL will automatically orphan children to root
     // when we delete the container
     db::delete_item(&conn, item.id)?;
-
-    if quiet {
-        println!("{}", item.id);
-        return Ok(());
-    }
 
     output::print_removed(&item_name, &orphaned_names, format)
 }

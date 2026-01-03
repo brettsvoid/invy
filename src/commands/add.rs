@@ -16,7 +16,6 @@ use crate::output::{self, Format};
 /// * `container` - Optional container to place item in (auto-creates if needed)
 /// * `json` - Output as JSON
 /// * `csv` - Output as CSV
-/// * `quiet` - Minimal output
 /// * `db_path` - Optional custom database path
 pub fn run(
     name: &str,
@@ -24,7 +23,6 @@ pub fn run(
     container: Option<&str>,
     json: bool,
     csv: bool,
-    quiet: bool,
     db_path: Option<&Path>,
 ) -> Result<()> {
     let conn = db::open(db_path)?;
@@ -50,11 +48,6 @@ pub fn run(
 
     // Insert the item
     let item = db::insert_item(&conn, name, desc, container_id)?;
-
-    if quiet {
-        println!("{}", item.id);
-        return Ok(());
-    }
 
     // Get full path for display
     let path = db::get_item_path(&conn, item.id)?;
