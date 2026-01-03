@@ -48,3 +48,13 @@ Single `items` table with self-referential `container_id` foreign key. ON DELETE
 - `--json`, `--csv` flags for output format
 - `--db <path>` overrides default database location
 - See SPEC.md for complete behavioral specification
+
+## Commit Style
+
+Use conventional commits: `type: description`
+
+- `feat:` new feature
+- `fix:` bug fix
+- `refactor:` code change that neither fixes a bug nor adds a feature
+- `docs:` documentation only
+- `test:` adding or updating tests
