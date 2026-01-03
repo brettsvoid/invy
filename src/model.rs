@@ -68,3 +68,15 @@ impl Item {
         }
     }
 }
+
+/// Item with nested children for tree display.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TreeItem {
+    pub id: i64,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub child_count: i64,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<TreeItem>,
+}

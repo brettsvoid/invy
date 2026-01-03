@@ -6,7 +6,7 @@ use anyhow::Result;
 use serde::Serialize;
 use std::io;
 
-use crate::model::{ItemWithPath, ListItem};
+use crate::model::{ItemWithPath, ListItem, TreeItem};
 
 /// Output format selection.
 #[derive(Debug, Clone, Copy)]
@@ -328,4 +328,84 @@ fn print_list_items_csv(items: &[ListItem]) -> Result<()> {
     }
     wtr.flush()?;
     Ok(())
+}
+
+// Tree output (for recursive list)
+
+/// Output tree items with hierarchy (for recursive list command).
+pub fn print_tree_items(items: &[TreeItem], format: Format) -> Result<()> {
+    match format {
+        Format::Human => print_tree_items_human(items),
+        Format::Json => print_json(items),
+        Format::Csv => print_tree_items_csv(items),
+    }
+}
+
+/// Tree rendering characters
+const TREE_BRANCH: &str = "├── ";
+const TREE_LAST: &str = "└── ";
+const TREE_VERTICAL: &str = "│   ";
+const TREE_SPACE: &str = "    ";
+
+fn print_tree_items_human(items: &[TreeItem]) -> Result<()> {
+    fn print_item_line(item: &TreeItem) {
+        print!("{}", item.name);
+        if let Some(ref desc) = item.description {
+            print!(" ({})", desc);
+        }
+        if item.child_count > 0 {
+            print!(" [{}]", item.child_count);
+        }
+        println!();
+    }
+
+    fn print_subtree(item: &TreeItem, prefix: &str, is_last: bool) {
+        let connector = if is_last { TREE_LAST } else { TREE_BRANCH };
+
+        print!("{}{}", prefix, connector);
+        print_item_line(item);
+
+        let child_prefix = format!(
+            "{}{}",
+            prefix,
+            if is_last { TREE_SPACE } else { TREE_VERTICAL }
+        );
+
+        let child_count = item.children.len();
+        for (i, child) in item.children.iter().enumerate() {
+            print_subtree(child, &child_prefix, i == child_count - 1);
+        }
+    }
+
+    for item in items {
+        // Root items: print without prefix
+        print_item_line(item);
+
+        // Print children with tree structure
+        let child_count = item.children.len();
+        for (i, child) in item.children.iter().enumerate() {
+            print_subtree(child, "", i == child_count - 1);
+        }
+    }
+
+    Ok(())
+}
+
+fn print_tree_items_csv(items: &[TreeItem]) -> Result<()> {
+    // Flatten tree for CSV output
+    fn collect_flat(items: &[TreeItem], result: &mut Vec<ListItem>) {
+        for item in items {
+            result.push(ListItem {
+                id: item.id,
+                name: item.name.clone(),
+                description: item.description.clone(),
+                child_count: item.child_count,
+            });
+            collect_flat(&item.children, result);
+        }
+    }
+
+    let mut flat_items = Vec::new();
+    collect_flat(items, &mut flat_items);
+    print_list_items_csv(&flat_items)
 }

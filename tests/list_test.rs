@@ -128,3 +128,87 @@ fn list_shows_child_count() {
         .stdout(predicate::str::contains("toolbox"))
         .stdout(predicate::str::contains("2")); // 2 items
 }
+
+/// Test: recursive list shows tree structure with Unicode characters
+#[test]
+fn list_recursive_shows_tree_structure() {
+    let env = common::TestEnv::new();
+
+    // Setup nested hierarchy
+    env.add("garage").success();
+    env.add_into("toolbox", "garage").success();
+    env.add_into("hammer", "garage/toolbox").success();
+    env.add_into("screwdriver", "garage/toolbox").success();
+
+    // Recursive list should show tree with proper indentation
+    env.run(&["list", "--recursive"])
+        .success()
+        .stdout(predicate::str::contains("garage"))
+        .stdout(predicate::str::contains("└── toolbox"))
+        .stdout(predicate::str::contains("├── hammer").or(predicate::str::contains("└── hammer")))
+        .stdout(predicate::str::contains("├── screwdriver").or(predicate::str::contains("└── screwdriver")));
+}
+
+/// Test: recursive list shows child counts in brackets
+#[test]
+fn list_recursive_shows_child_counts() {
+    let env = common::TestEnv::new();
+
+    env.add("garage").success();
+    env.add_into("toolbox", "garage").success();
+    env.add_into("hammer", "garage/toolbox").success();
+
+    // Should show [1] for garage (has toolbox) and [1] for toolbox (has hammer)
+    env.run(&["list", "--recursive"])
+        .success()
+        .stdout(predicate::str::contains("garage [1]"))
+        .stdout(predicate::str::contains("toolbox [1]"));
+}
+
+/// Test: recursive list with JSON stays flat
+#[test]
+fn list_recursive_json_is_flat_array() {
+    let env = common::TestEnv::new();
+
+    env.add("garage").success();
+    env.add_into("toolbox", "garage").success();
+
+    // JSON output should be an array with both items
+    env.run(&["list", "--recursive", "--json"])
+        .success()
+        .stdout(predicate::str::contains(r#""name":"garage""#))
+        .stdout(predicate::str::contains(r#""name":"toolbox""#));
+}
+
+/// Test: recursive list sorts alphabetically
+#[test]
+fn list_recursive_alphabetical_order() {
+    let env = common::TestEnv::new();
+
+    // Add items in non-alphabetical order
+    env.add("zebra").success();
+    env.add("alpha").success();
+    env.add("middle").success();
+
+    // Output should be sorted: alpha, middle, zebra
+    let output = env
+        .run(&["list", "--recursive"])
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let output_str = String::from_utf8_lossy(&output);
+    let alpha_pos = output_str.find("alpha").expect("alpha not found");
+    let middle_pos = output_str.find("middle").expect("middle not found");
+    let zebra_pos = output_str.find("zebra").expect("zebra not found");
+
+    assert!(
+        alpha_pos < middle_pos,
+        "alpha should come before middle"
+    );
+    assert!(
+        middle_pos < zebra_pos,
+        "middle should come before zebra"
+    );
+}
