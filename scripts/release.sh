@@ -11,16 +11,19 @@ fi
 
 echo "Releasing version: $VERSION"
 
+# Strip 'v' prefix for Cargo.toml (uses bare version)
+BARE_VERSION="${VERSION#v}"
+
 # Update Cargo.toml version
-sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+sed -i '' "s/^version = \".*\"/version = \"$BARE_VERSION\"/" Cargo.toml
 
 # Generate changelog
 git cliff --bump -o CHANGELOG.md
 
 # Commit and tag
 git add Cargo.toml CHANGELOG.md
-git commit -m "chore: release v$VERSION"
-git tag "v$VERSION"
+git commit -m "chore: release $VERSION"
+git tag "$VERSION"
 
-echo "Released v$VERSION"
+echo "Released $VERSION"
 echo "Run 'git push && git push --tags' to publish"
