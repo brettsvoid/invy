@@ -84,6 +84,25 @@ fn show_by_full_path() {
         .stdout(predicate::str::contains("hammer"));
 }
 
+/// Test: nonexistent item suggests substring matches
+#[test]
+fn show_nonexistent_item_suggests_matches() {
+    let env = common::TestEnv::new();
+
+    // Setup two items that match the substring "kvm"
+    env.add_with_desc("8k displayport kvm switch", "dual monitor, 2x2")
+        .success();
+    env.add("usb kvm switch").success();
+
+    // show with a string that doesn't exact-match either name
+    env.run(&["show", "kvm switch"])
+        .failure()
+        .stderr(predicate::str::contains("not found"))
+        .stderr(predicate::str::contains("Did you mean"))
+        .stderr(predicate::str::contains("8k displayport kvm switch"))
+        .stderr(predicate::str::contains("usb kvm switch"));
+}
+
 /// Test: ambiguous name without path shows error
 #[test]
 fn show_ambiguous_name_fails() {

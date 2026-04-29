@@ -19,8 +19,20 @@ pub fn run(item_ref: &str, json: bool, csv: bool, db_path: Option<&Path>) -> Res
     let conn = db::open(db_path)?;
     let format = Format::from_flags(json, csv);
 
-    let item = db::resolve_item(&conn, item_ref)?
-        .ok_or_else(|| anyhow!("item '{}' not found", item_ref))?;
+    let item = match db::resolve_item(&conn, item_ref)? {
+        Some(item) => item,
+        None => {
+            let suggestions = db::search_items(&conn, item_ref).unwrap_or_default();
+            if !suggestions.is_empty() {
+                eprintln!("Did you mean:");
+                for suggestion in suggestions.iter().take(10) {
+                    let path = db::get_item_path(&conn, suggestion.id).unwrap_or_default();
+                    eprintln!("  {}", path.join("/"));
+                }
+            }
+            return Err(anyhow!("item '{}' not found", item_ref));
+        }
+    };
 
     let path = db::get_item_path(&conn, item.id)?;
     let child_count = db::count_children(&conn, item.id)?;

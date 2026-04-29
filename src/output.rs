@@ -216,17 +216,9 @@ fn print_item_human(item: &ItemWithPath) -> Result<()> {
 
 fn print_items_human(items: &[ItemWithPath]) -> Result<()> {
     for item in items {
-        print!("{}", item.name);
+        println!("{}", item.path.join("/"));
         if let Some(ref desc) = item.description {
-            print!(" ({})", desc);
-        }
-        println!();
-
-        if item.path.len() > 1 {
-            let location = &item.path[..item.path.len() - 1];
-            let mut reversed = location.to_vec();
-            reversed.reverse();
-            println!("  -> {}", reversed.join(" -> "));
+            println!("  {}", desc);
         }
         println!();
     }

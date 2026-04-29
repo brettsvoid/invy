@@ -131,12 +131,17 @@ Search for items by name or description.
 3. Returns all matches with their full paths
 
 #### Output (human)
-```
-hammer (claw hammer)
-  └─ toolbox → garage
 
-hammer (ball peen)
-  └─ workshop
+Each result is printed as the full slash-path on the first line, with the
+description (if any) on an indented second line. The path is directly
+pasteable into `invy show`.
+
+```
+garage/toolbox/hammer
+  claw hammer
+
+workshop/hammer
+  ball peen
 ```
 
 #### Output (JSON)
@@ -257,6 +262,9 @@ Show detailed information about a specific item.
 1. Shows item details including full path
 2. If item is a container, shows child count
 3. Resolves ambiguous names (errors if multiple matches)
+4. If no exact name or path matches, performs a substring search across
+   names and descriptions and prints `Did you mean:` followed by up to 10
+   candidate paths to stderr before exiting with code 1
 
 #### Output (human)
 ```
@@ -307,6 +315,16 @@ invy show toolbox/hammer
 
 # Show as JSON
 invy show hammer --json
+```
+
+When the reference doesn't match exactly, suggestions are printed to stderr:
+
+```
+$ invy show "kvm switch"
+error: item 'kvm switch' not found
+Did you mean:
+  garage/closet/8k displayport kvm switch
+  office/desk/usb kvm switch
 ```
 
 ---
