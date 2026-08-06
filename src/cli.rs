@@ -31,7 +31,7 @@ pub struct Cli {
     /// Characters to draw the tree with
     ///
     /// "nerd" needs a patched font. "unicode" works anywhere, "ascii" is for pipes.
-    #[arg(long, global = true, value_enum, env = "INVY_GLYPHS", default_value_t = GlyphSet::Unicode)]
+    #[arg(long, global = true, value_enum, env = "INVY_GLYPHS", default_value_t = GlyphSet::Nerd)]
     pub glyphs: GlyphSet,
 }
 

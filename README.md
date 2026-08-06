@@ -48,22 +48,22 @@ Output formats: `--json`, `--csv`
 Every item has a kind. The first three describe a place, and `thing` is the
 default for everything you put in one.
 
-| Kind | Unicode | Nerd | Covers |
-| ---- | ------- | ---- | ------ |
-| `room` | `⌂` | `󰋞` | A room, a loft, a shed, a garden |
-| `furniture` | `▤` | `󰽊` | A cupboard, a dresser, a shelf, a workbench |
-| `box` | `▣` | `󰏗` | A box, a bag, a case, a toolbox |
+| Kind | Nerd | Unicode | Covers |
+| ---- | ---- | ------- | ------ |
+| `room` | `󰋞` | `⌂` | A room, a loft, a shed, a garden |
+| `furniture` | `󰽊` | `▤` | A cupboard, a dresser, a shelf, a workbench |
+| `box` | `󰏗` | `▣` | A box, a bag, a case, a toolbox |
 | `thing` | | | Anything you put in a place |
 
 ```
 $ invy list --recursive
-⌂ home [2]
-├── ⌂ bedroom [1]
-│   └── ▤ dresser [1]
-│       └── ▣ sock drawer [1]
+󰋞 home [2]
+├── 󰋞 bedroom [1]
+│   └── 󰽊 dresser [1]
+│       └── 󰏗 sock drawer [1]
 │           └── socks
-└── ⌂ garage [1]
-    └── ▣ toolbox [1]
+└── 󰋞 garage [1]
+    └── 󰏗 toolbox [1]
         └── hammer (16oz claw)
 ```
 
@@ -74,13 +74,15 @@ the flag wins over the environment.
 
 | Set | Kinds | Folds | Branches | Needs |
 | --- | ----- | ----- | -------- | ----- |
-| `unicode` (default) | `⌂ ▤ ▣` | `▾ ▸ ·` | `├── └── │` | any font |
-| `nerd` | `󰋞 󰽊 󰏗` | `  ` | `├── └── │` | a patched font |
+| `nerd` (default) | `󰋞 󰽊 󰏗` | `  ` | `├── └── │` | a patched font |
+| `unicode` | `⌂ ▤ ▣` | `▾ ▸ ·` | `├── └── │` | any font |
 | `ascii` | none | `v > -` | `\|--` `` `-- `` `\|` | nothing |
 
+Without a patched font, switch to the portable set:
+
 ```bash
-invy list --recursive --glyphs nerd
-export INVY_GLYPHS=nerd            # or set it once
+invy list --recursive --glyphs unicode
+export INVY_GLYPHS=unicode         # or set it once
 invy list --recursive --glyphs ascii | mail -s inventory me@example.com
 ```
 

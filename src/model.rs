@@ -7,11 +7,11 @@ use std::sync::OnceLock;
 /// Which characters to draw the tree with.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
 pub enum GlyphSet {
-    /// Geometric shapes from the base Unicode planes. Works in any font.
-    #[default]
-    Unicode,
     /// Nerd Font icons. Needs a patched font, or they show as blank boxes.
+    #[default]
     Nerd,
+    /// Geometric shapes from the base Unicode planes. Works in any font.
+    Unicode,
     /// Plain ASCII. Use this when piping to something that cannot draw the rest.
     Ascii,
 }

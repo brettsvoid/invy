@@ -18,7 +18,7 @@ A place is just an item that contains other items. There's no distinction betwee
 Every item has a kind. The set is fixed, so a typo is a parse error rather than
 a fourth kind. The first three describe a place. `thing` is the default.
 
-| Kind | Nerd Font | Unicode | Covers |
+| Kind | Nerd Font (default) | Unicode | Covers |
 |------|-----------|---------|--------|
 | `room` | `md-home_variant` U+F02DE | `⌂` | A room, a loft, a shed, a garden |
 | `furniture` | `md-dresser` U+F0F4A | `▤` | A cupboard, a dresser, a shelf, a workbench |
@@ -30,14 +30,14 @@ the tree branches:
 
 | Set | Expanded | Collapsed | Leaf | Branches |
 |-----|----------|-----------|------|----------|
+| `nerd` (default) | `cod-triangle_down` U+EB6E | `cod-triangle_right` U+EB70 | `cod-circle_small` U+EC07 | `├── └── │` |
 | `unicode` | `▾` | `▸` | `·` | `├── └── │` |
-| `nerd` | `cod-triangle_down` U+EB6E | `cod-triangle_right` U+EB70 | `cod-circle_small` U+EC07 | `├── └── │` |
 | `ascii` | `v` | `>` | `-` | `\|--` `` `-- `` `\|` |
 
-Every glyph is one column wide, so the tree lines up in all three sets. The Nerd
-Font codepoints sit in the Private Use Area, so a terminal without a patched
-font draws blank boxes. `ascii` emits no character above U+007F, which makes it
-the one to pipe.
+Every glyph is one column wide, so the tree lines up in all three sets. `nerd`
+is the default. Its codepoints sit in the Private Use Area, so a terminal
+without a patched font draws blank boxes and should use `unicode` instead.
+`ascii` emits no character above U+007F, which makes it the one to pipe.
 
 A kind is descriptive, not structural. It does not restrict what can go where,
 and nothing else in `invy` reads it. A place auto-created on the way to an item
@@ -74,7 +74,7 @@ All commands support these flags:
 | `--json` | `-j` | Output as JSON |
 | `--csv` | | Output as CSV |
 | `--db <path>` | | Use custom database file |
-| `--glyphs <set>` | | Tree characters: `unicode` (default), `nerd`, `ascii`. Reads `INVY_GLYPHS` |
+| `--glyphs <set>` | | Tree characters: `nerd` (default), `unicode`, `ascii`. Reads `INVY_GLYPHS` |
 
 **Default database location:** `~/.invy.db`
 

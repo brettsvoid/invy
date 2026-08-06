@@ -125,26 +125,26 @@ fn seeded() -> TestEnv {
 }
 
 #[test]
-fn the_recursive_tree_uses_unicode_shapes_by_default() {
+fn the_recursive_tree_draws_nerd_font_icons_by_default() {
     let env = seeded();
 
     env.run(&["list", "--recursive"])
         .success()
-        .stdout(predicate::str::contains("⌂ garage"))
-        .stdout(predicate::str::contains("▣ toolbox"))
+        .stdout(predicate::str::contains("\u{f02de} garage"))
+        .stdout(predicate::str::contains("\u{f03d7} toolbox"))
         // A plain thing carries no glyph.
         .stdout(predicate::str::contains("── hammer"));
 }
 
 #[test]
-fn the_nerd_glyph_set_draws_private_use_area_icons() {
+fn the_unicode_glyph_set_needs_no_patched_font() {
     let env = seeded();
 
-    env.run(&["list", "--recursive", "--glyphs", "nerd"])
+    env.run(&["list", "--recursive", "--glyphs", "unicode"])
         .success()
-        .stdout(predicate::str::contains("\u{f02de} garage"))
-        .stdout(predicate::str::contains("\u{f03d7} toolbox"))
-        .stdout(predicate::str::contains("⌂").not());
+        .stdout(predicate::str::contains("⌂ garage"))
+        .stdout(predicate::str::contains("▣ toolbox"))
+        .stdout(predicate::str::contains("\u{f02de}").not());
 }
 
 #[test]
@@ -167,11 +167,11 @@ fn the_glyph_set_can_come_from_the_environment() {
     let env = seeded();
 
     env.cmd()
-        .env("INVY_GLYPHS", "nerd")
+        .env("INVY_GLYPHS", "unicode")
         .args(["list", "--recursive"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\u{f02de} garage"));
+        .stdout(predicate::str::contains("⌂ garage"));
 }
 
 #[test]
@@ -179,11 +179,11 @@ fn the_flag_beats_the_environment() {
     let env = seeded();
 
     env.cmd()
-        .env("INVY_GLYPHS", "nerd")
+        .env("INVY_GLYPHS", "unicode")
         .args(["list", "--recursive", "--glyphs", "ascii"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\u{f02de}").not())
+        .stdout(predicate::str::contains("⌂").not())
         .stdout(predicate::str::contains("`-- toolbox"));
 }
 
