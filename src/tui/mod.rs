@@ -1,6 +1,6 @@
 //! Interactive terminal UI for invy.
 //!
-//! Browse the container tree, and add, rename, describe, move or remove items
+//! Browse the place tree, and add, rename, describe, move or remove items
 //! without leaving the app.
 
 mod app;

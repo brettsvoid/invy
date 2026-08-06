@@ -1,6 +1,6 @@
 //! List command implementation.
 //!
-//! See SPEC.md#invy-list-container
+//! See SPEC.md#invy-list-place
 
 use anyhow::{anyhow, Result};
 use rusqlite::Connection;
@@ -11,16 +11,16 @@ use crate::db;
 use crate::model::{Item, TreeItem};
 use crate::output::{self, Format};
 
-/// List items, optionally within a specific container.
+/// List items, optionally within a specific place.
 ///
 /// # Arguments
-/// * `container` - Optional container to list (default: root)
+/// * `place` - Optional place to list (default: root)
 /// * `recursive` - List all descendants
 /// * `json` - Output as JSON
 /// * `csv` - Output as CSV
 /// * `db_path` - Optional custom database path
 pub fn run(
-    container: Option<&str>,
+    place: Option<&str>,
     recursive: bool,
     json: bool,
     csv: bool,
@@ -35,11 +35,11 @@ pub fn run(
         let tree = build_item_tree(&items, &conn);
         output::print_tree_items(&tree, format)
     } else {
-        let items = if let Some(container_ref) = container {
-            // List items in specific container
-            let container_item = db::resolve_item(&conn, container_ref)?
-                .ok_or_else(|| anyhow!("container '{}' not found", container_ref))?;
-            db::list_items_in_container(&conn, container_item.id)?
+        let items = if let Some(place_ref) = place {
+            // List items in specific place
+            let place_item = db::resolve_item(&conn, place_ref)?
+                .ok_or_else(|| anyhow!("place '{}' not found", place_ref))?;
+            db::list_items_in_place(&conn, place_item.id)?
         } else {
             // List root items
             db::list_root_items(&conn)?
@@ -58,15 +58,12 @@ pub fn run(
     }
 }
 
-/// Build a tree structure from flat items using container_id relationships.
+/// Build a tree structure from flat items using place_id relationships.
 fn build_item_tree(items: &[Item], conn: &Connection) -> Vec<TreeItem> {
     // Build parent -> children mapping
     let mut children_map: HashMap<Option<i64>, Vec<&Item>> = HashMap::new();
     for item in items {
-        children_map
-            .entry(item.container_id)
-            .or_default()
-            .push(item);
+        children_map.entry(item.place_id).or_default().push(item);
     }
 
     // Sort children alphabetically (case-insensitive)

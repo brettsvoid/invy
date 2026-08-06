@@ -8,11 +8,11 @@ use std::path::Path;
 use crate::db;
 use crate::output::{self, Format};
 
-/// Move an item to a different container.
+/// Move an item to a different place.
 ///
 /// # Arguments
 /// * `item` - Item to move
-/// * `destination` - Target container (use "/" for root)
+/// * `destination` - Target place (use "/" for root)
 /// * `json` - Output as JSON
 /// * `csv` - Output as CSV
 /// * `db_path` - Optional custom database path
@@ -34,32 +34,32 @@ pub fn run(
     let old_path = db::get_item_path(&conn, item.id)?;
 
     // Resolve destination
-    let new_container_id = if destination == "/" || destination == "root" {
+    let new_place_id = if destination == "/" || destination == "root" {
         None
     } else {
-        let container = db::resolve_or_create_container(&conn, destination)?;
+        let place = db::resolve_or_create_place(&conn, destination)?;
 
         // Check for circular reference
-        if container.id == item.id {
+        if place.id == item.id {
             return Err(anyhow!(
                 "cannot move '{}' into itself or its descendants",
                 item.name
             ));
         }
-        if db::is_ancestor(&conn, item.id, container.id)? {
+        if db::is_ancestor(&conn, item.id, place.id)? {
             return Err(anyhow!(
                 "cannot move '{}' into itself or its descendants",
                 item.name
             ));
         }
 
-        Some(container.id)
+        Some(place.id)
     };
 
     // Check for name conflict in destination
-    if db::name_exists_in_container(&conn, &item.name, new_container_id)? {
+    if db::name_exists_in_place(&conn, &item.name, new_place_id)? {
         // Check if it's the same item (moving to same place)
-        if item.container_id != new_container_id {
+        if item.place_id != new_place_id {
             let dest_name = if destination == "/" || destination == "root" {
                 "(root)".to_string()
             } else {
@@ -74,7 +74,7 @@ pub fn run(
     }
 
     // Perform the move
-    db::move_item(&conn, item.id, new_container_id)?;
+    db::move_item(&conn, item.id, new_place_id)?;
 
     // Get updated item for display
     let updated_item = db::get_item_by_id(&conn, item.id)?

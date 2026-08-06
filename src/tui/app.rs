@@ -22,9 +22,9 @@ pub struct Node {
     pub ancestors: Vec<bool>,
     pub is_last: bool,
     pub parent: Option<i64>,
-    /// Container path with a trailing `/`, set only on filtered rows.
+    /// Place path with a trailing `/`, set only on filtered rows.
     /// Empty for a match that sits at root.
-    pub container_path: Option<String>,
+    pub place_path: Option<String>,
 }
 
 /// What the next keypress means.
@@ -43,7 +43,7 @@ pub struct Prompt {
 }
 
 pub enum PromptKind {
-    /// Add an item inside the given container, or at root when `None`.
+    /// Add an item inside the given place, or at root when `None`.
     Add(Option<i64>),
     Rename(i64),
     Describe(i64),
@@ -138,7 +138,7 @@ impl App {
                 break;
             };
             path.push(item.name.clone());
-            current = item.container_id;
+            current = item.place_id;
             guard += 1;
             if guard > self.items.len() {
                 break;
@@ -155,7 +155,7 @@ impl App {
 
     /// Parent id, ignoring references to rows that are no longer present.
     fn parent_of(&self, item: &Item) -> Option<i64> {
-        item.container_id.filter(|id| self.items.contains_key(id))
+        item.place_id.filter(|id| self.items.contains_key(id))
     }
 
     fn children_map(&self) -> HashMap<Option<i64>, Vec<&Item>> {
@@ -223,7 +223,7 @@ impl App {
                 let path = self.path_of(item.id);
                 // Always Some in filtered rows, so every match renders the same
                 // way. Root items simply carry an empty prefix.
-                let container_path = Some(if path.len() > 1 {
+                let place_path = Some(if path.len() > 1 {
                     format!("{}/", path[..path.len() - 1].join("/"))
                 } else {
                     String::new()
@@ -238,7 +238,7 @@ impl App {
                     ancestors: Vec::new(),
                     is_last: true,
                     parent: self.parent_of(item),
-                    container_path,
+                    place_path,
                 }
             })
             .collect()
@@ -342,7 +342,7 @@ impl App {
 
     // -- actions ---------------------------------------------------------
 
-    fn add_item(&mut self, container_id: Option<i64>, name: &str) -> Result<String> {
+    fn add_item(&mut self, place_id: Option<i64>, name: &str) -> Result<String> {
         let name = name.trim();
         if name.is_empty() {
             return Err(anyhow!("name cannot be empty"));
@@ -350,12 +350,12 @@ impl App {
         if name.contains('/') {
             return Err(anyhow!("name cannot contain '/'"));
         }
-        if db::name_exists_in_container(&self.conn, name, container_id)? {
+        if db::name_exists_in_place(&self.conn, name, place_id)? {
             return Err(anyhow!("'{name}' already exists here"));
         }
 
-        let item = db::insert_item(&self.conn, name, None, container_id)?;
-        if let Some(id) = container_id {
+        let item = db::insert_item(&self.conn, name, None, place_id)?;
+        if let Some(id) = place_id {
             self.expanded.insert(id);
         }
         self.pending_selection = Some(item.id);
@@ -380,8 +380,8 @@ impl App {
             return Ok(format!("'{old_name}' unchanged"));
         }
 
-        let container_id = item.container_id;
-        if db::name_exists_in_container(&self.conn, new_name, container_id)? {
+        let place_id = item.place_id;
+        if db::name_exists_in_place(&self.conn, new_name, place_id)? {
             return Err(anyhow!("'{new_name}' already exists here"));
         }
 
@@ -413,22 +413,22 @@ impl App {
             .name
             .clone();
 
-        let new_container_id =
-            if destination.is_empty() || destination == "/" || destination == "root" {
-                None
-            } else {
-                let container = db::resolve_or_create_container(&self.conn, destination)?;
-                if container.id == id || db::is_ancestor(&self.conn, id, container.id)? {
-                    return Err(anyhow!(
-                        "cannot move '{name}' into itself or its descendants"
-                    ));
-                }
-                Some(container.id)
-            };
+        let new_place_id = if destination.is_empty() || destination == "/" || destination == "root"
+        {
+            None
+        } else {
+            let place = db::resolve_or_create_place(&self.conn, destination)?;
+            if place.id == id || db::is_ancestor(&self.conn, id, place.id)? {
+                return Err(anyhow!(
+                    "cannot move '{name}' into itself or its descendants"
+                ));
+            }
+            Some(place.id)
+        };
 
-        let current_container_id = self.items.get(&id).and_then(|item| item.container_id);
-        if current_container_id != new_container_id
-            && db::name_exists_in_container(&self.conn, &name, new_container_id)?
+        let current_place_id = self.items.get(&id).and_then(|item| item.place_id);
+        if current_place_id != new_place_id
+            && db::name_exists_in_place(&self.conn, &name, new_place_id)?
         {
             let target = if destination.is_empty() {
                 "/"
@@ -438,13 +438,13 @@ impl App {
             return Err(anyhow!("'{name}' already exists in {target}"));
         }
 
-        db::move_item(&self.conn, id, new_container_id)?;
-        if let Some(container_id) = new_container_id {
-            self.expanded.insert(container_id);
+        db::move_item(&self.conn, id, new_place_id)?;
+        if let Some(place_id) = new_place_id {
+            self.expanded.insert(place_id);
         }
         self.pending_selection = Some(id);
 
-        let target = if new_container_id.is_none() {
+        let target = if new_place_id.is_none() {
             "/".to_string()
         } else {
             destination.to_string()
@@ -518,12 +518,12 @@ impl App {
             }
 
             KeyCode::Char('a') => {
-                let container = self.selected_id();
-                let title = match container.map(|id| self.path_of(id).join("/")) {
+                let place = self.selected_id();
+                let title = match place.map(|id| self.path_of(id).join("/")) {
                     Some(path) => format!("Add item in {path}"),
                     None => "Add item at root".to_string(),
                 };
-                self.open_prompt(title, "name", String::new(), PromptKind::Add(container));
+                self.open_prompt(title, "name", String::new(), PromptKind::Add(place));
             }
             KeyCode::Char('A') => {
                 self.open_prompt(
@@ -662,7 +662,7 @@ impl App {
             KeyCode::Enter => {
                 let value = prompt.input.value().to_string();
                 let result = match prompt.kind {
-                    PromptKind::Add(container) => self.add_item(container, &value),
+                    PromptKind::Add(place) => self.add_item(place, &value),
                     PromptKind::Rename(id) => self.rename_item(id, &value),
                     PromptKind::Describe(id) => self.describe_item(id, &value),
                     PromptKind::Move(id) => self.move_item(id, &value),
@@ -722,7 +722,7 @@ impl App {
     }
 }
 
-/// Append one level of the tree, recursing into expanded containers.
+/// Append one level of the tree, recursing into expanded places.
 fn push_level(
     map: &HashMap<Option<i64>, Vec<&Item>>,
     parent: Option<i64>,
@@ -750,7 +750,7 @@ fn push_level(
             ancestors: ancestors.clone(),
             is_last,
             parent,
-            container_path: None,
+            place_path: None,
         });
 
         if is_expanded {
@@ -807,7 +807,7 @@ mod tests {
     }
 
     #[test]
-    fn tree_lists_children_under_their_container_in_name_order() {
+    fn tree_lists_children_under_their_place_in_name_order() {
         let (app, _dir) = app();
         assert_eq!(
             names(&app),
@@ -827,7 +827,7 @@ mod tests {
     }
 
     #[test]
-    fn collapsing_a_leaf_selects_its_container() {
+    fn collapsing_a_leaf_selects_its_place() {
         let (mut app, _dir) = app();
         app.selected = app.nodes.iter().position(|n| n.name == "hammer").unwrap();
 
@@ -968,7 +968,7 @@ mod tests {
     }
 
     #[test]
-    fn removing_a_container_leaves_its_children_at_root() {
+    fn removing_a_place_leaves_its_children_at_root() {
         let (mut app, _dir) = app();
         app.selected = app.nodes.iter().position(|n| n.name == "toolbox").unwrap();
 
@@ -994,7 +994,7 @@ mod tests {
     }
 
     #[test]
-    fn search_rows_show_the_container_path() {
+    fn search_rows_show_the_place_path() {
         let (mut app, _dir) = app();
 
         press(&mut app, KeyCode::Char('/'));
@@ -1002,10 +1002,10 @@ mod tests {
         press(&mut app, KeyCode::Enter);
 
         let hammer = app.nodes.iter().find(|n| n.name == "hammer").unwrap();
-        assert_eq!(hammer.container_path.as_deref(), Some("garage/toolbox/"));
+        assert_eq!(hammer.place_path.as_deref(), Some("garage/toolbox/"));
 
         let attic = app.nodes.iter().find(|n| n.name == "attic").unwrap();
-        assert_eq!(attic.container_path.as_deref(), Some(""));
+        assert_eq!(attic.place_path.as_deref(), Some(""));
     }
 
     #[test]

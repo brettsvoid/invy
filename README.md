@@ -1,6 +1,6 @@
 # invy
 
-A CLI tool for tracking home inventory with hierarchical containers.
+A CLI tool for tracking home inventory with hierarchical places.
 
 ## Installation
 
@@ -28,7 +28,7 @@ invy find hammer
 invy show hammer
 
 # Move items
-invy mv hammer kitchen     # move to different container
+invy mv hammer kitchen     # move to different place
 invy mv hammer /           # move to root
 
 # Edit items
@@ -47,7 +47,7 @@ invy tui
 ```
 
 `invy tui` opens a terminal UI over the same database. The left pane is the
-container tree, the right pane shows the selected item.
+place tree, the right pane shows the selected item.
 
 | Key               | Action                                     |
 | ----------------- | ------------------------------------------ |
@@ -55,12 +55,12 @@ container tree, the right pane shows the selected item.
 | `g` `G`           | First and last row                          |
 | `Ctrl-d` `Ctrl-u` | Half page down and up                       |
 | `⏎` `Space`       | Expand or collapse                          |
-| `l` `h`           | Expand, or collapse and go to the container |
+| `l` `h`           | Expand, or collapse and go to the place |
 | `E` `C`           | Expand all, collapse all                    |
 | `/`               | Search names and descriptions               |
 | `a` `A`           | Add inside the selection, add at root       |
 | `r` `d`           | Rename, edit the description                |
-| `m`               | Move to another container                   |
+| `m`               | Move to another place                   |
 | `x` `Del`         | Remove (asks first)                         |
 | `R`               | Reload from the database                    |
 | `?`               | Show the key list                           |

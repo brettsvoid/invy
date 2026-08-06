@@ -43,9 +43,9 @@ pub fn run(
     // Update name if specified
     if let Some(name) = new_name {
         // Check for name conflict
-        if name != item.name && db::name_exists_in_container(&conn, name, item.container_id)? {
-            let location = if item.container_id.is_some() {
-                "container"
+        if name != item.name && db::name_exists_in_place(&conn, name, item.place_id)? {
+            let location = if item.place_id.is_some() {
+                "place"
             } else {
                 "(root)"
             };

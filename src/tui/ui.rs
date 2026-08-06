@@ -77,8 +77,8 @@ fn draw_tree(frame: &mut Frame, app: &App, area: Rect) {
 fn row(node: &super::app::Node) -> Line<'static> {
     let mut spans = Vec::new();
 
-    if let Some(container) = &node.container_path {
-        spans.push(Span::styled(container.clone(), Style::default().fg(MUTED)));
+    if let Some(place) = &node.place_path {
+        spans.push(Span::styled(place.clone(), Style::default().fg(MUTED)));
         spans.push(Span::raw(node.name.clone()));
     } else {
         let mut prefix = String::new();
@@ -262,7 +262,7 @@ fn draw_help(frame: &mut Frame) {
         ("A", "add an item at root"),
         ("r", "rename the selection"),
         ("d", "edit the description"),
-        ("m", "move to another container"),
+        ("m", "move to another place"),
         ("x / Del", "remove the selection"),
         ("R", "reload from the database"),
         ("? ", "this help"),

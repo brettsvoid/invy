@@ -1,4 +1,4 @@
-//! invy - A CLI tool for tracking home inventory with hierarchical containers.
+//! invy - A CLI tool for tracking home inventory with hierarchical places.
 //!
 //! See SPEC.md for full behavioral specification.
 
@@ -19,14 +19,10 @@ fn main() -> Result<()> {
     let db_path = cli.db.as_deref();
 
     match cli.command {
-        Commands::Add {
-            name,
-            desc,
-            container,
-        } => commands::add::run(
+        Commands::Add { name, desc, place } => commands::add::run(
             &name,
             desc.as_deref(),
-            container.as_deref(),
+            place.as_deref(),
             cli.json,
             cli.csv,
             db_path,
@@ -34,10 +30,9 @@ fn main() -> Result<()> {
 
         Commands::Find { query } => commands::find::run(&query, cli.json, cli.csv, db_path),
 
-        Commands::List {
-            container,
-            recursive,
-        } => commands::list::run(container.as_deref(), recursive, cli.json, cli.csv, db_path),
+        Commands::List { place, recursive } => {
+            commands::list::run(place.as_deref(), recursive, cli.json, cli.csv, db_path)
+        }
 
         Commands::Show { item } => commands::show::run(&item, cli.json, cli.csv, db_path),
 

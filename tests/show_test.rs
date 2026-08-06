@@ -25,17 +25,17 @@ fn show_item_details_and_path() {
         .stdout(predicate::str::contains("garage"));
 }
 
-/// Test: show container with contents count
+/// Test: show place with contents count
 #[test]
-fn show_container_with_contents_count() {
+fn show_place_with_contents_count() {
     let env = common::TestEnv::new();
 
-    // Setup container with items
+    // Setup place with items
     env.add("toolbox").success();
     env.add_into("hammer", "toolbox").success();
     env.add_into("screwdriver", "toolbox").success();
 
-    // Show container should display item count
+    // Show place should display item count
     env.run(&["show", "toolbox"])
         .success()
         .stdout(predicate::str::contains("toolbox"))
@@ -74,7 +74,7 @@ fn show_with_json_output() {
 fn show_by_full_path() {
     let env = common::TestEnv::new();
 
-    // Setup two items with same name in different containers
+    // Setup two items with same name in different places
     env.add_with_desc("hammer", "root hammer").success();
     env.add_into("hammer", "toolbox").success();
 

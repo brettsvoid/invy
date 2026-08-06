@@ -1,17 +1,17 @@
 # invy - Specification
 
-A command-line tool for tracking home inventory with hierarchical containers.
+A command-line tool for tracking home inventory with hierarchical places.
 
 ## Core Concepts
 
 ### Items
 Everything in invy is an **item**. An item has:
-- **name** (required): unique identifier within its container
+- **name** (required): unique identifier within its place
 - **description** (optional): free-form text
-- **container** (optional): parent item that holds this item
+- **place** (optional): parent item that holds this item
 
-### Containers
-A container is just an item that contains other items. There's no distinction between "item" and "container" - any item can hold other items.
+### Places
+A place is just an item that contains other items. There's no distinction between "item" and "place" - any item can hold other items.
 
 ### Hierarchy
 Items form a tree structure:
@@ -64,11 +64,11 @@ Add a new item to the inventory.
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--desc <text>` | `-d` | Item description |
-| `--in <container>` | `-i` | Container to place item in |
+| `--in <place>` | `-i` | Place to put the item in |
 
 #### Behavior
-1. If `--in` is specified and container doesn't exist, **auto-create it**
-2. Names must be unique within the same container
+1. If `--in` is specified and place doesn't exist, **auto-create it**
+2. Names must be unique within the same place
 3. Names at root level must be unique among root items
 
 #### Output (human)
@@ -89,7 +89,7 @@ Added: hammer
 
 #### Output (CSV)
 ```
-id,name,description,container
+id,name,description,place
 5,hammer,claw hammer,toolbox
 ```
 
@@ -97,7 +97,7 @@ id,name,description,container
 | Code | Condition |
 |------|-----------|
 | 0 | Success |
-| 1 | Duplicate name in container |
+| 1 | Duplicate name in the same place |
 
 #### Examples
 ```bash
@@ -107,7 +107,7 @@ invy add "garage"
 # Add with description
 invy add "hammer" --desc "claw hammer"
 
-# Add into container (auto-creates if needed)
+# Add into place (auto-creates if needed)
 invy add "screwdriver" --in toolbox
 
 # Add with full path
@@ -181,14 +181,14 @@ invy find screw --json | jq '.[] | select(.path[0] == "garage")'
 
 ---
 
-### `invy list [container]`
+### `invy list [place]`
 
-List items, optionally within a specific container.
+List items, optionally within a specific place.
 
 #### Arguments
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `container` | No | Container to list (default: root) |
+| `place` | No | Place to list (default: root) |
 
 #### Flags
 | Flag | Short | Description |
@@ -197,8 +197,8 @@ List items, optionally within a specific container.
 
 #### Behavior
 1. Without argument: lists all root-level items
-2. With container: lists direct children only (unless `--recursive`)
-3. Shows item name, description, and child count if container
+2. With place: lists direct children only (unless `--recursive`)
+3. Shows item name, description, and child count if place
 
 #### Output (human)
 ```
@@ -230,14 +230,14 @@ id,name,description,child_count
 | Code | Condition |
 |------|-----------|
 | 0 | Success |
-| 1 | Container not found |
+| 1 | Place not found |
 
 #### Examples
 ```bash
 # List root items
 invy list
 
-# List items in container
+# List items in a place
 invy list toolbox
 
 # List all items recursively
@@ -260,7 +260,7 @@ Show detailed information about a specific item.
 
 #### Behavior
 1. Shows item details including full path
-2. If item is a container, shows child count
+2. If item is a place, shows child count
 3. Resolves ambiguous names (errors if multiple matches)
 4. If no exact name or path matches, performs a substring search across
    names and descriptions and prints `Did you mean:` followed by up to 10
@@ -270,16 +270,16 @@ Show detailed information about a specific item.
 ```
 Name:        hammer
 Description: claw hammer
-Location:    toolbox → garage
+Place:       toolbox → garage
 Created:     2024-01-15 10:30:00
 Updated:     2024-01-15 10:30:00
 ```
 
-For containers:
+For places:
 ```
 Name:        toolbox
 Description: red metal box
-Location:    garage
+Place:       garage
 Contains:    3 items
 Created:     2024-01-15 10:30:00
 Updated:     2024-01-15 10:30:00
@@ -331,18 +331,18 @@ Did you mean:
 
 ### `invy mv <item> <destination>`
 
-Move an item to a different container.
+Move an item to a different place.
 
 #### Arguments
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `item` | Yes | Item to move |
-| `destination` | Yes | Target container (use `/` for root) |
+| `destination` | Yes | Target place (use `/` for root) |
 
 #### Behavior
-1. Moves item to new container
+1. Moves item to new place
 2. If destination doesn't exist, **auto-create it**
-3. Cannot move a container into itself or its descendants
+3. Cannot move a place into itself or its descendants
 4. Use `/` or `root` as destination to move to root level
 
 #### Output (human)
@@ -362,7 +362,7 @@ Moved: hammer
 
 #### Examples
 ```bash
-# Move to different container
+# Move to different place
 invy mv hammer workshop
 
 # Move to root level
@@ -385,7 +385,7 @@ Remove an item from the inventory.
 
 #### Behavior
 1. Removes the specified item
-2. If item is a container with children: **orphan children to root level**
+2. If item is a place with children: **orphan children to root level**
 3. Orphaned items retain their names and descriptions
 
 #### Output (human)
@@ -408,7 +408,7 @@ Orphaned 3 items to root:
 # Remove item
 invy rm hammer
 
-# Remove container (orphans contents)
+# Remove place (orphans contents)
 invy rm toolbox
 ```
 
@@ -431,7 +431,7 @@ Edit an existing item's name or description.
 
 #### Behavior
 1. At least one of `--name` or `--desc` must be provided
-2. New name must be unique within container
+2. New name must be unique within its place
 3. Use `--desc ""` to clear description
 
 #### Output (human)
@@ -475,11 +475,11 @@ None. `--db` applies. `--json` and `--csv` are ignored.
 #### Layout
 | Pane | Content |
 |------|---------|
-| Left | The container tree, one row per item |
+| Left | The place tree, one row per item |
 | Right | Name, path, child count, timestamps and description of the selection |
 | Bottom | The last result message, or the key hints |
 
-A container row carries a `▸` or `▾` marker and its child count. A leaf row
+A place row carries a `▸` or `▾` marker and its child count. A leaf row
 carries a `·` marker.
 
 #### Keys
@@ -491,14 +491,14 @@ carries a `·` marker.
 | `PageDown` `PageUp` | Full page down and up |
 | `⏎` `Space` | Expand or collapse the selection |
 | `l` `→` | Expand, or step into the first child |
-| `h` `←` | Collapse, or select the container |
+| `h` `←` | Collapse, or select the place |
 | `E` `C` | Expand all, collapse all |
 | `/` | Search by name and description |
 | `a` | Add an item inside the selection |
 | `A` | Add an item at root |
 | `r` | Rename the selection |
 | `d` | Edit the description. An empty value clears it |
-| `m` | Move the selection to another container |
+| `m` | Move the selection to another place |
 | `x` `Del` | Remove the selection, after a confirmation |
 | `R` | Reload from the database |
 | `?` | Show the key list. Any key closes it |
@@ -508,11 +508,11 @@ carries a `·` marker.
 #### Behavior
 1. Every change writes through the same functions the CLI commands use, so the
    name, path and move rules of `add`, `edit`, `mv` and `rm` all apply
-2. Search shows a flat list of matches with the container path of each one
+2. Search shows a flat list of matches with the place path of each one
 3. Tree keys do nothing while a search is active
 4. A failed change leaves the database untouched and reports the reason in the
    bottom bar
-5. Removing a container orphans its children to root, the same as `rm`
+5. Removing a place orphans its children to root, the same as `rm`
 
 #### Exit Codes
 | Code | Condition |
@@ -538,7 +538,7 @@ All errors are written to stderr.
 | Error | Message |
 |-------|---------|
 | Item not found | `Error: item 'NAME' not found` |
-| Duplicate name | `Error: item 'NAME' already exists in CONTAINER` |
+| Duplicate name | `Error: item 'NAME' already exists in PLACE` |
 | Circular move | `Error: cannot move 'NAME' into itself or its descendants` |
 | Ambiguous name | `Error: 'NAME' is ambiguous. Use full path: PATH1, PATH2` |
 | No changes | `Error: no changes specified. Use --name or --desc` |
@@ -555,14 +555,24 @@ CREATE TABLE items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     description TEXT,
-    container_id INTEGER REFERENCES items(id) ON DELETE SET NULL,
+    place_id INTEGER REFERENCES items(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE INDEX idx_items_name ON items(name);
-CREATE INDEX idx_items_container ON items(container_id);
-CREATE UNIQUE INDEX idx_items_name_container ON items(name, container_id);
+CREATE INDEX idx_items_place ON items(place_id);
+CREATE UNIQUE INDEX idx_items_name_place ON items(name, COALESCE(place_id, 0));
 ```
 
 Note: `ON DELETE SET NULL` implements orphaning behavior for `rm` command.
+
+### Migrations
+
+`PRAGMA user_version` records how far a database file has come. `invy` migrates
+on open, so any older file upgrades in place the first time a new build reads it.
+
+| Version | Change |
+|---------|--------|
+| 1 | The original schema. The parent column was named `container_id` |
+| 2 | `container_id` renamed to `place_id`. Indexes renamed to match |

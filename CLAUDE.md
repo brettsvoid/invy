@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**invy** is a Rust CLI tool for home inventory management with hierarchical containers. Items are organized in a tree structure (e.g., garage -> toolbox -> hammer). Single SQLite database at `~/.invy.db`.
+**invy** is a Rust CLI tool for home inventory management with hierarchical places. Items are organized in a tree structure (e.g., garage -> toolbox -> hammer). Single SQLite database at `~/.invy.db`.
 
 ## Build Commands
 
@@ -41,7 +41,7 @@ src/
 
 ## Database Schema
 
-Single `items` table with self-referential `container_id` foreign key. ON DELETE SET NULL orphans children when parent is deleted. Unique constraint on (name, container_id) prevents duplicate names within same container.
+Single `items` table with self-referential `place_id` foreign key. ON DELETE SET NULL orphans children when parent is deleted. Unique constraint on (name, place_id) prevents duplicate names within same place.
 
 ## Testing
 

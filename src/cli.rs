@@ -5,7 +5,7 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-/// A CLI tool for tracking home inventory with hierarchical containers.
+/// A CLI tool for tracking home inventory with hierarchical places.
 ///
 /// See SPEC.md for full documentation.
 #[derive(Parser, Debug)]
@@ -41,9 +41,9 @@ pub enum Commands {
         #[arg(short, long)]
         desc: Option<String>,
 
-        /// Container to place item in (auto-creates if needed)
+        /// Place to put the item in (auto-creates if needed)
         #[arg(short = 'i', long = "in")]
-        container: Option<String>,
+        place: Option<String>,
     },
 
     /// Search for items by name or description
@@ -54,12 +54,12 @@ pub enum Commands {
         query: String,
     },
 
-    /// List items, optionally within a specific container
+    /// List items, optionally within a specific place
     ///
-    /// See SPEC.md#invy-list-container
+    /// See SPEC.md#invy-list-place
     List {
-        /// Container to list (default: root)
-        container: Option<String>,
+        /// Place to list (default: root)
+        place: Option<String>,
 
         /// List all descendants recursively
         #[arg(short, long)]
@@ -74,14 +74,14 @@ pub enum Commands {
         item: String,
     },
 
-    /// Move an item to a different container
+    /// Move an item to a different place
     ///
     /// See SPEC.md#invy-mv-item-destination
     Mv {
         /// Item to move
         item: String,
 
-        /// Target container (use "/" for root)
+        /// Target place (use "/" for root)
         destination: String,
     },
 

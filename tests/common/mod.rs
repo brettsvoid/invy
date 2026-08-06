@@ -40,14 +40,14 @@ impl TestEnv {
         self.run(&["add", name, "--desc", desc])
     }
 
-    /// Run invy add command into a container.
-    pub fn add_into(&self, name: &str, container: &str) -> assert_cmd::assert::Assert {
-        self.run(&["add", name, "--in", container])
+    /// Run invy add command into a place.
+    pub fn add_into(&self, name: &str, place: &str) -> assert_cmd::assert::Assert {
+        self.run(&["add", name, "--in", place])
     }
 
-    /// Run invy add command with description into a container.
-    pub fn add_full(&self, name: &str, desc: &str, container: &str) -> assert_cmd::assert::Assert {
-        self.run(&["add", name, "--desc", desc, "--in", container])
+    /// Run invy add command with description into a place.
+    pub fn add_full(&self, name: &str, desc: &str, place: &str) -> assert_cmd::assert::Assert {
+        self.run(&["add", name, "--desc", desc, "--in", place])
     }
 }
 

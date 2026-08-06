@@ -10,7 +10,7 @@ use crate::output::{self, Format};
 
 /// Remove an item from the inventory.
 ///
-/// If the item is a container with children, orphan them to root level.
+/// If the item is a place with children, orphan them to root level.
 ///
 /// # Arguments
 /// * `item` - Item to remove
@@ -28,11 +28,11 @@ pub fn run(item_ref: &str, json: bool, csv: bool, db_path: Option<&Path>) -> Res
     let item_name = item.name.clone();
 
     // Get children that will be orphaned
-    let children = db::list_items_in_container(&conn, item.id)?;
+    let children = db::list_items_in_place(&conn, item.id)?;
     let orphaned_names: Vec<String> = children.iter().map(|c| c.name.clone()).collect();
 
     // The ON DELETE SET NULL will automatically orphan children to root
-    // when we delete the container
+    // when we delete the place
     db::delete_item(&conn, item.id)?;
 
     output::print_removed(&item_name, &orphaned_names, format)

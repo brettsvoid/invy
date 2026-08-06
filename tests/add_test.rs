@@ -26,36 +26,36 @@ fn add_item_with_description() {
         .stdout(predicate::str::contains("Added: hammer"));
 }
 
-/// Test: add item into container (auto-creates container)
+/// Test: add item into place (auto-creates place)
 #[test]
-fn add_item_into_container_auto_creates() {
+fn add_item_into_place_auto_creates() {
     let env = common::TestEnv::new();
 
-    // Container "toolbox" doesn't exist yet - should be auto-created
+    // Place "toolbox" doesn't exist yet - should be auto-created
     env.add_into("hammer", "toolbox")
         .success()
         .stdout(predicate::str::contains("Added: hammer"))
         .stdout(predicate::str::contains("toolbox"));
 }
 
-/// Test: add item into nested container path
+/// Test: add item into nested place path
 #[test]
-fn add_item_into_nested_container() {
+fn add_item_into_nested_place() {
     let env = common::TestEnv::new();
 
     // First create the hierarchy
     env.add("garage").success();
     env.add_into("toolbox", "garage").success();
 
-    // Now add into the nested container
+    // Now add into the nested place
     env.add_into("hammer", "toolbox")
         .success()
         .stdout(predicate::str::contains("Added: hammer"));
 }
 
-/// Test: error on duplicate name in same container
+/// Test: error on duplicate name in same place
 #[test]
-fn add_duplicate_name_in_same_container_fails() {
+fn add_duplicate_name_in_same_place_fails() {
     let env = common::TestEnv::new();
 
     // Add first item
@@ -67,15 +67,15 @@ fn add_duplicate_name_in_same_container_fails() {
         .stderr(predicate::str::contains("already exists"));
 }
 
-/// Test: duplicate names allowed in different containers
+/// Test: duplicate names allowed in different places
 #[test]
-fn add_duplicate_name_in_different_containers_succeeds() {
+fn add_duplicate_name_in_different_places_succeeds() {
     let env = common::TestEnv::new();
 
     // Add hammer at root
     env.add("hammer").success();
 
-    // Add another hammer in toolbox - should succeed (different container)
+    // Add another hammer in toolbox - should succeed (different place)
     env.add_into("hammer", "toolbox").success();
 }
 
@@ -97,6 +97,6 @@ fn add_with_csv_output() {
 
     env.run(&["add", "hammer", "--csv"])
         .success()
-        .stdout(predicate::str::contains("id,name,description,container"))
+        .stdout(predicate::str::contains("id,name,description,place"))
         .stdout(predicate::str::contains("hammer"));
 }

@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 
 /// An item in the inventory.
 ///
-/// Items can be standalone or nested inside containers.
-/// A container is just an item that has other items inside it.
+/// Items can be standalone or nested inside places.
+/// A place is just an item that has other items inside it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Item {
     pub id: i64,
@@ -13,7 +13,7 @@ pub struct Item {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub container_id: Option<i64>,
+    pub place_id: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
 }

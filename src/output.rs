@@ -62,14 +62,14 @@ pub fn print_added(item: &ItemWithPath, format: Format) -> Result<()> {
         Format::Human => {
             println!("Added: {}", item.name);
             if item.path.len() > 1 {
-                let container_path = &item.path[..item.path.len() - 1];
-                println!("  -> {}", container_path.join(" -> "));
+                let place_path = &item.path[..item.path.len() - 1];
+                println!("  -> {}", place_path.join(" -> "));
             }
             Ok(())
         }
         Format::Json => print_json(item),
         Format::Csv => {
-            println!("id,name,description,container");
+            println!("id,name,description,place");
             println!(
                 "{},{},{},{}",
                 item.id,
@@ -197,9 +197,9 @@ fn print_item_human(item: &ItemWithPath) -> Result<()> {
         let location = &item.path[..item.path.len() - 1];
         let mut reversed = location.to_vec();
         reversed.reverse();
-        println!("Location:    {}", reversed.join(" -> "));
+        println!("Place:       {}", reversed.join(" -> "));
     } else {
-        println!("Location:    (root)");
+        println!("Place:       (root)");
     }
 
     if let Some(count) = item.child_count {

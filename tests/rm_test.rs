@@ -25,12 +25,12 @@ fn remove_item() {
         .stderr(predicate::str::contains("not found"));
 }
 
-/// Test: remove empty container
+/// Test: remove empty place
 #[test]
-fn remove_empty_container() {
+fn remove_empty_place() {
     let env = common::TestEnv::new();
 
-    // Setup empty container
+    // Setup empty place
     env.add("empty_box").success();
 
     // Remove
@@ -44,17 +44,17 @@ fn remove_empty_container() {
         .stderr(predicate::str::contains("not found"));
 }
 
-/// Test: remove non-empty container → orphans contents to top-level
+/// Test: remove non-empty place → orphans contents to top-level
 #[test]
-fn remove_container_orphans_contents() {
+fn remove_place_orphans_contents() {
     let env = common::TestEnv::new();
 
-    // Setup container with items
+    // Setup place with items
     env.add("toolbox").success();
     env.add_into("hammer", "toolbox").success();
     env.add_into("screwdriver", "toolbox").success();
 
-    // Remove container
+    // Remove place
     env.run(&["rm", "toolbox"])
         .success()
         .stdout(predicate::str::contains("Removed"))
@@ -84,9 +84,9 @@ fn remove_nonexistent_item_fails() {
         .stderr(predicate::str::contains("not found"));
 }
 
-/// Test: remove nested container orphans to root
+/// Test: remove nested place orphans to root
 #[test]
-fn remove_nested_container_orphans_to_root() {
+fn remove_nested_place_orphans_to_root() {
     let env = common::TestEnv::new();
 
     // Setup: garage -> toolbox -> hammer

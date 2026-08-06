@@ -1,6 +1,6 @@
 //! Integration tests for the `list` command.
 //!
-//! See SPEC.md#invy-list-container
+//! See SPEC.md#invy-list-place
 
 mod common;
 
@@ -24,9 +24,9 @@ fn list_all_top_level_items() {
         .stdout(predicate::str::contains("wrench"));
 }
 
-/// Test: list items in specific container
+/// Test: list items in specific place
 #[test]
-fn list_items_in_container() {
+fn list_items_in_place() {
     let env = common::TestEnv::new();
 
     // Setup: toolbox with items
@@ -72,21 +72,21 @@ fn list_with_csv_output() {
         .stdout(predicate::str::contains("id,name,description,child_count"));
 }
 
-/// Test: list empty container
+/// Test: list empty place
 #[test]
-fn list_empty_container() {
+fn list_empty_place() {
     let env = common::TestEnv::new();
 
-    // Setup empty container
+    // Setup empty place
     env.add("empty_box").success();
 
     // List should succeed but show nothing (or empty message)
     env.run(&["list", "empty_box"]).success();
 }
 
-/// Test: list non-existent container fails
+/// Test: list non-existent place fails
 #[test]
-fn list_nonexistent_container_fails() {
+fn list_nonexistent_place_fails() {
     let env = common::TestEnv::new();
 
     env.run(&["list", "nonexistent"])
@@ -112,12 +112,12 @@ fn list_recursive() {
         .stdout(predicate::str::contains("hammer"));
 }
 
-/// Test: list shows child count for containers
+/// Test: list shows child count for places
 #[test]
 fn list_shows_child_count() {
     let env = common::TestEnv::new();
 
-    // Setup container with items
+    // Setup place with items
     env.add("toolbox").success();
     env.add_into("hammer", "toolbox").success();
     env.add_into("screwdriver", "toolbox").success();
@@ -146,7 +146,10 @@ fn list_recursive_shows_tree_structure() {
         .stdout(predicate::str::contains("garage"))
         .stdout(predicate::str::contains("└── toolbox"))
         .stdout(predicate::str::contains("├── hammer").or(predicate::str::contains("└── hammer")))
-        .stdout(predicate::str::contains("├── screwdriver").or(predicate::str::contains("└── screwdriver")));
+        .stdout(
+            predicate::str::contains("├── screwdriver")
+                .or(predicate::str::contains("└── screwdriver")),
+        );
 }
 
 /// Test: recursive list shows child counts in brackets
@@ -203,12 +206,6 @@ fn list_recursive_alphabetical_order() {
     let middle_pos = output_str.find("middle").expect("middle not found");
     let zebra_pos = output_str.find("zebra").expect("zebra not found");
 
-    assert!(
-        alpha_pos < middle_pos,
-        "alpha should come before middle"
-    );
-    assert!(
-        middle_pos < zebra_pos,
-        "middle should come before zebra"
-    );
+    assert!(alpha_pos < middle_pos, "alpha should come before middle");
+    assert!(middle_pos < zebra_pos, "middle should come before zebra");
 }

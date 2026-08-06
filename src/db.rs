@@ -29,28 +29,82 @@ pub fn open(path: Option<&Path>) -> Result<Connection> {
     Ok(conn)
 }
 
-/// Run database migrations.
-fn migrate(conn: &Connection) -> Result<()> {
-    conn.execute_batch(
-        r#"
-        CREATE TABLE IF NOT EXISTS items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            description TEXT,
-            container_id INTEGER REFERENCES items(id) ON DELETE SET NULL,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
+/// Schema version this build expects. Bump it for every new migration step.
+const SCHEMA_VERSION: i64 = 2;
 
-        CREATE INDEX IF NOT EXISTS idx_items_name ON items(name);
-        CREATE INDEX IF NOT EXISTS idx_items_container ON items(container_id);
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_items_name_container
-            ON items(name, COALESCE(container_id, 0));
-        "#,
-    )
-    .context("Failed to run migrations")?;
+/// Bring the database up to `SCHEMA_VERSION`.
+///
+/// `PRAGMA user_version` records how far a file has come. Version 1 is the
+/// original schema, which named the parent column `container_id`.
+fn migrate(conn: &Connection) -> Result<()> {
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+
+    if version >= SCHEMA_VERSION {
+        return Ok(());
+    }
+
+    if version < 1 {
+        // Either a new file, or one written before user_version was set. The
+        // IF NOT EXISTS guards make the second case a no-op.
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                description TEXT,
+                container_id INTEGER REFERENCES items(id) ON DELETE SET NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_items_name ON items(name);
+            CREATE INDEX IF NOT EXISTS idx_items_container ON items(container_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_items_name_container
+                ON items(name, COALESCE(container_id, 0));
+            "#,
+        )
+        .context("Failed to create the items table")?;
+    }
+
+    if version < 2 {
+        // Rename container_id to place_id. SQLite rewrites the foreign key and
+        // the index expressions, but keeps the old index names, so drop and
+        // recreate those.
+        if has_column(conn, "items", "container_id")? {
+            conn.execute_batch("ALTER TABLE items RENAME COLUMN container_id TO place_id")
+                .context("Failed to rename container_id to place_id")?;
+        }
+        conn.execute_batch(
+            r#"
+            DROP INDEX IF EXISTS idx_items_container;
+            DROP INDEX IF EXISTS idx_items_name_container;
+            CREATE INDEX IF NOT EXISTS idx_items_place ON items(place_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_items_name_place
+                ON items(name, COALESCE(place_id, 0));
+            "#,
+        )
+        .context("Failed to rebuild the place indexes")?;
+    }
+
+    conn.pragma_update(None, "user_version", SCHEMA_VERSION)
+        .context("Failed to record the schema version")?;
 
     Ok(())
+}
+
+/// Whether `table` currently has a column called `column`.
+fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut rows = stmt.query([])?;
+
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == column {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
 }
 
 /// Insert a new item into the database.
@@ -58,11 +112,11 @@ pub fn insert_item(
     conn: &Connection,
     name: &str,
     description: Option<&str>,
-    container_id: Option<i64>,
+    place_id: Option<i64>,
 ) -> Result<Item> {
     conn.execute(
-        "INSERT INTO items (name, description, container_id) VALUES (?1, ?2, ?3)",
-        params![name, description, container_id],
+        "INSERT INTO items (name, description, place_id) VALUES (?1, ?2, ?3)",
+        params![name, description, place_id],
     )
     .with_context(|| format!("Failed to insert item '{}'", name))?;
 
@@ -73,7 +127,7 @@ pub fn insert_item(
 /// Get an item by ID.
 pub fn get_item_by_id(conn: &Connection, id: i64) -> Result<Option<Item>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, description, container_id, created_at, updated_at FROM items WHERE id = ?1",
+        "SELECT id, name, description, place_id, created_at, updated_at FROM items WHERE id = ?1",
     )?;
 
     let item = stmt
@@ -82,7 +136,7 @@ pub fn get_item_by_id(conn: &Connection, id: i64) -> Result<Option<Item>> {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 description: row.get(2)?,
-                container_id: row.get(3)?,
+                place_id: row.get(3)?,
                 created_at: row.get(4)?,
                 updated_at: row.get(5)?,
             })
@@ -113,10 +167,10 @@ pub fn get_item_by_name(conn: &Connection, name: &str) -> Result<Option<Item>> {
     }
 }
 
-/// Find items by exact name (may return multiple if in different containers).
+/// Find items by exact name (may return multiple if in different places).
 pub fn find_items_by_exact_name(conn: &Connection, name: &str) -> Result<Vec<Item>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, description, container_id, created_at, updated_at
+        "SELECT id, name, description, place_id, created_at, updated_at
          FROM items WHERE name = ?1",
     )?;
 
@@ -126,7 +180,7 @@ pub fn find_items_by_exact_name(conn: &Connection, name: &str) -> Result<Vec<Ite
                 id: row.get(0)?,
                 name: row.get(1)?,
                 description: row.get(2)?,
-                container_id: row.get(3)?,
+                place_id: row.get(3)?,
                 created_at: row.get(4)?,
                 updated_at: row.get(5)?,
             })
@@ -144,22 +198,22 @@ pub fn get_item_by_path(conn: &Connection, path: &str) -> Result<Option<Item>> {
         return Ok(None);
     }
 
-    let mut current_container_id: Option<i64> = None;
+    let mut current_place_id: Option<i64> = None;
     let mut current_item: Option<Item> = None;
 
     for part in parts {
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, container_id, created_at, updated_at
-             FROM items WHERE name = ?1 AND container_id IS ?2",
+            "SELECT id, name, description, place_id, created_at, updated_at
+             FROM items WHERE name = ?1 AND place_id IS ?2",
         )?;
 
         current_item = stmt
-            .query_row(params![part, current_container_id], |row| {
+            .query_row(params![part, current_place_id], |row| {
                 Ok(Item {
                     id: row.get(0)?,
                     name: row.get(1)?,
                     description: row.get(2)?,
-                    container_id: row.get(3)?,
+                    place_id: row.get(3)?,
                     created_at: row.get(4)?,
                     updated_at: row.get(5)?,
                 })
@@ -167,7 +221,7 @@ pub fn get_item_by_path(conn: &Connection, path: &str) -> Result<Option<Item>> {
             .optional()?;
 
         match &current_item {
-            Some(item) => current_container_id = Some(item.id),
+            Some(item) => current_place_id = Some(item.id),
             None => return Ok(None),
         }
     }
@@ -192,7 +246,7 @@ pub fn get_item_path(conn: &Connection, item_id: i64) -> Result<Vec<String>> {
     while let Some(id) = current_id {
         if let Some(item) = get_item_by_id(conn, id)? {
             path.push(item.name);
-            current_id = item.container_id;
+            current_id = item.place_id;
         } else {
             break;
         }
@@ -207,7 +261,7 @@ pub fn search_items(conn: &Connection, query: &str) -> Result<Vec<Item>> {
     let pattern = format!("%{}%", query);
 
     let mut stmt = conn.prepare(
-        "SELECT id, name, description, container_id, created_at, updated_at
+        "SELECT id, name, description, place_id, created_at, updated_at
          FROM items
          WHERE name LIKE ?1 COLLATE NOCASE
             OR description LIKE ?1 COLLATE NOCASE",
@@ -219,7 +273,7 @@ pub fn search_items(conn: &Connection, query: &str) -> Result<Vec<Item>> {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 description: row.get(2)?,
-                container_id: row.get(3)?,
+                place_id: row.get(3)?,
                 created_at: row.get(4)?,
                 updated_at: row.get(5)?,
             })
@@ -229,11 +283,11 @@ pub fn search_items(conn: &Connection, query: &str) -> Result<Vec<Item>> {
     Ok(items)
 }
 
-/// List items at root level (no container).
+/// List items at root level (no place).
 pub fn list_root_items(conn: &Connection) -> Result<Vec<Item>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, description, container_id, created_at, updated_at
-         FROM items WHERE container_id IS NULL",
+        "SELECT id, name, description, place_id, created_at, updated_at
+         FROM items WHERE place_id IS NULL",
     )?;
 
     let items = stmt
@@ -242,7 +296,7 @@ pub fn list_root_items(conn: &Connection) -> Result<Vec<Item>> {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 description: row.get(2)?,
-                container_id: row.get(3)?,
+                place_id: row.get(3)?,
                 created_at: row.get(4)?,
                 updated_at: row.get(5)?,
             })
@@ -252,20 +306,20 @@ pub fn list_root_items(conn: &Connection) -> Result<Vec<Item>> {
     Ok(items)
 }
 
-/// List items in a specific container.
-pub fn list_items_in_container(conn: &Connection, container_id: i64) -> Result<Vec<Item>> {
+/// List items in a specific place.
+pub fn list_items_in_place(conn: &Connection, place_id: i64) -> Result<Vec<Item>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, description, container_id, created_at, updated_at
-         FROM items WHERE container_id = ?1",
+        "SELECT id, name, description, place_id, created_at, updated_at
+         FROM items WHERE place_id = ?1",
     )?;
 
     let items = stmt
-        .query_map(params![container_id], |row| {
+        .query_map(params![place_id], |row| {
             Ok(Item {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 description: row.get(2)?,
-                container_id: row.get(3)?,
+                place_id: row.get(3)?,
                 created_at: row.get(4)?,
                 updated_at: row.get(5)?,
             })
@@ -277,8 +331,8 @@ pub fn list_items_in_container(conn: &Connection, container_id: i64) -> Result<V
 
 /// List all items recursively.
 pub fn list_all_items(conn: &Connection) -> Result<Vec<Item>> {
-    let mut stmt = conn
-        .prepare("SELECT id, name, description, container_id, created_at, updated_at FROM items")?;
+    let mut stmt =
+        conn.prepare("SELECT id, name, description, place_id, created_at, updated_at FROM items")?;
 
     let items = stmt
         .query_map([], |row| {
@@ -286,7 +340,7 @@ pub fn list_all_items(conn: &Connection) -> Result<Vec<Item>> {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 description: row.get(2)?,
-                container_id: row.get(3)?,
+                place_id: row.get(3)?,
                 created_at: row.get(4)?,
                 updated_at: row.get(5)?,
             })
@@ -299,7 +353,7 @@ pub fn list_all_items(conn: &Connection) -> Result<Vec<Item>> {
 /// Count children of an item.
 pub fn count_children(conn: &Connection, item_id: i64) -> Result<i64> {
     let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM items WHERE container_id = ?1",
+        "SELECT COUNT(*) FROM items WHERE place_id = ?1",
         params![item_id],
         |row| row.get(0),
     )?;
@@ -328,11 +382,11 @@ pub fn update_item_description(
     Ok(())
 }
 
-/// Move an item to a new container.
-pub fn move_item(conn: &Connection, item_id: i64, new_container_id: Option<i64>) -> Result<()> {
+/// Move an item to a new place.
+pub fn move_item(conn: &Connection, item_id: i64, new_place_id: Option<i64>) -> Result<()> {
     conn.execute(
-        "UPDATE items SET container_id = ?1, updated_at = datetime('now') WHERE id = ?2",
-        params![new_container_id, item_id],
+        "UPDATE items SET place_id = ?1, updated_at = datetime('now') WHERE id = ?2",
+        params![new_place_id, item_id],
     )?;
     Ok(())
 }
@@ -352,7 +406,7 @@ pub fn is_ancestor(conn: &Connection, potential_ancestor_id: i64, item_id: i64) 
             return Ok(true);
         }
         if let Some(item) = get_item_by_id(conn, id)? {
-            current_id = item.container_id;
+            current_id = item.place_id;
         } else {
             break;
         }
@@ -361,34 +415,30 @@ pub fn is_ancestor(conn: &Connection, potential_ancestor_id: i64, item_id: i64) 
     Ok(false)
 }
 
-/// Check if a name exists in a container.
-pub fn name_exists_in_container(
-    conn: &Connection,
-    name: &str,
-    container_id: Option<i64>,
-) -> Result<bool> {
+/// Check if a name exists in a place.
+pub fn name_exists_in_place(conn: &Connection, name: &str, place_id: Option<i64>) -> Result<bool> {
     let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM items WHERE name = ?1 AND container_id IS ?2",
-        params![name, container_id],
+        "SELECT COUNT(*) FROM items WHERE name = ?1 AND place_id IS ?2",
+        params![name, place_id],
         |row| row.get(0),
     )?;
     Ok(count > 0)
 }
 
-/// Get or create a container by name (at root level).
+/// Get or create a place by name (at root level).
 #[allow(dead_code)]
-pub fn get_or_create_container(conn: &Connection, name: &str) -> Result<Item> {
+pub fn get_or_create_place(conn: &Connection, name: &str) -> Result<Item> {
     // First try to find existing
     if let Some(item) = get_item_by_path(conn, name)? {
         return Ok(item);
     }
 
-    // Create new container
+    // Create new place
     insert_item(conn, name, None, None)
 }
 
-/// Resolve a container reference, creating if necessary.
-pub fn resolve_or_create_container(conn: &Connection, reference: &str) -> Result<Item> {
+/// Resolve a place reference, creating if necessary.
+pub fn resolve_or_create_place(conn: &Connection, reference: &str) -> Result<Item> {
     // First try to resolve existing
     if let Ok(Some(item)) = resolve_item(conn, reference) {
         return Ok(item);
@@ -397,13 +447,13 @@ pub fn resolve_or_create_container(conn: &Connection, reference: &str) -> Result
     // If it's a path, we need to create the hierarchy
     if reference.contains('/') {
         let parts: Vec<&str> = reference.split('/').filter(|s| !s.is_empty()).collect();
-        let mut current_container_id: Option<i64> = None;
+        let mut current_place_id: Option<i64> = None;
         let mut current_item: Option<Item> = None;
 
         for part in parts {
-            // Check if this part exists in current container
-            let existing = if let Some(cid) = current_container_id {
-                let items = list_items_in_container(conn, cid)?;
+            // Check if this part exists in current place
+            let existing = if let Some(cid) = current_place_id {
+                let items = list_items_in_place(conn, cid)?;
                 items.into_iter().find(|i| i.name == part)
             } else {
                 let items = list_root_items(conn)?;
@@ -412,20 +462,149 @@ pub fn resolve_or_create_container(conn: &Connection, reference: &str) -> Result
 
             current_item = match existing {
                 Some(item) => {
-                    current_container_id = Some(item.id);
+                    current_place_id = Some(item.id);
                     Some(item)
                 }
                 None => {
-                    let new_item = insert_item(conn, part, None, current_container_id)?;
-                    current_container_id = Some(new_item.id);
+                    let new_item = insert_item(conn, part, None, current_place_id)?;
+                    current_place_id = Some(new_item.id);
                     Some(new_item)
                 }
             };
         }
 
-        current_item.ok_or_else(|| anyhow!("Failed to create container path"))
+        current_item.ok_or_else(|| anyhow!("Failed to create place path"))
     } else {
         // Simple name - create at root
         insert_item(conn, reference, None, None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    /// Write a database in the version 1 schema, before place_id existed.
+    fn v1_database(path: &Path) -> Connection {
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                description TEXT,
+                container_id INTEGER REFERENCES items(id) ON DELETE SET NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX idx_items_name ON items(name);
+            CREATE INDEX idx_items_container ON items(container_id);
+            CREATE UNIQUE INDEX idx_items_name_container
+                ON items(name, COALESCE(container_id, 0));
+
+            INSERT INTO items (id, name, description, container_id)
+                VALUES (1, 'garage', NULL, NULL),
+                       (2, 'toolbox', NULL, 1),
+                       (3, 'hammer', '16oz claw', 2);
+            "#,
+        )
+        .unwrap();
+        conn
+    }
+
+    fn index_names(conn: &Connection) -> Vec<String> {
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%' ORDER BY name")
+            .unwrap();
+        let names = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        names
+    }
+
+    fn user_version(conn: &Connection) -> i64 {
+        conn.query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_version_1_database_gains_place_id_and_keeps_its_rows() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("old.db");
+        drop(v1_database(&path));
+
+        let conn = open(Some(&path)).unwrap();
+
+        assert!(has_column(&conn, "items", "place_id").unwrap());
+        assert!(!has_column(&conn, "items", "container_id").unwrap());
+        assert_eq!(user_version(&conn), SCHEMA_VERSION);
+
+        let hammer = get_item_by_id(&conn, 3).unwrap().unwrap();
+        assert_eq!(hammer.name, "hammer");
+        assert_eq!(hammer.description.as_deref(), Some("16oz claw"));
+        assert_eq!(hammer.place_id, Some(2));
+        assert_eq!(
+            get_item_path(&conn, 3).unwrap(),
+            ["garage", "toolbox", "hammer"]
+        );
+    }
+
+    #[test]
+    fn migrating_replaces_the_old_index_names() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("old.db");
+        drop(v1_database(&path));
+
+        let conn = open(Some(&path)).unwrap();
+
+        assert_eq!(
+            index_names(&conn),
+            ["idx_items_name", "idx_items_name_place", "idx_items_place"]
+        );
+    }
+
+    #[test]
+    fn the_unique_name_per_place_rule_survives_migration() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("old.db");
+        drop(v1_database(&path));
+
+        let conn = open(Some(&path)).unwrap();
+
+        // 'hammer' already sits in toolbox (id 2).
+        assert!(insert_item(&conn, "hammer", None, Some(2)).is_err());
+        // The same name in another place is still fine.
+        assert!(insert_item(&conn, "hammer", None, Some(1)).is_ok());
+    }
+
+    #[test]
+    fn migrating_twice_changes_nothing() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("old.db");
+        drop(v1_database(&path));
+
+        drop(open(Some(&path)).unwrap());
+        let conn = open(Some(&path)).unwrap();
+
+        assert_eq!(user_version(&conn), SCHEMA_VERSION);
+        assert_eq!(list_all_items(&conn).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn a_new_database_starts_at_the_current_version() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("new.db");
+
+        let conn = open(Some(&path)).unwrap();
+
+        assert_eq!(user_version(&conn), SCHEMA_VERSION);
+        assert!(has_column(&conn, "items", "place_id").unwrap());
+        assert_eq!(
+            index_names(&conn),
+            ["idx_items_name", "idx_items_name_place", "idx_items_place"]
+        );
     }
 }

@@ -6,9 +6,9 @@ mod common;
 
 use predicates::prelude::*;
 
-/// Test: move item to different container
+/// Test: move item to different place
 #[test]
-fn move_item_to_different_container() {
+fn move_item_to_different_place() {
     let env = common::TestEnv::new();
 
     // Setup
@@ -27,7 +27,7 @@ fn move_item_to_different_container() {
         .stdout(predicate::str::contains("workshop"));
 }
 
-/// Test: move item to top-level (no container)
+/// Test: move item to top-level (no place)
 #[test]
 fn move_item_to_root() {
     let env = common::TestEnv::new();
@@ -47,9 +47,9 @@ fn move_item_to_root() {
         .stdout(predicate::str::contains("hammer"));
 }
 
-/// Test: error moving container into itself
+/// Test: error moving place into itself
 #[test]
-fn move_container_into_itself_fails() {
+fn move_place_into_itself_fails() {
     let env = common::TestEnv::new();
 
     // Setup
@@ -61,9 +61,9 @@ fn move_container_into_itself_fails() {
         .stderr(predicate::str::contains("cannot move"));
 }
 
-/// Test: error moving container into its descendant
+/// Test: error moving place into its descendant
 #[test]
-fn move_container_into_descendant_fails() {
+fn move_place_into_descendant_fails() {
     let env = common::TestEnv::new();
 
     // Setup hierarchy: garage -> shelf
@@ -76,7 +76,7 @@ fn move_container_into_descendant_fails() {
         .stderr(predicate::str::contains("cannot move"));
 }
 
-/// Test: auto-create destination container
+/// Test: auto-create destination place
 #[test]
 fn move_auto_creates_destination() {
     let env = common::TestEnv::new();
@@ -84,7 +84,7 @@ fn move_auto_creates_destination() {
     // Setup
     env.add("hammer").success();
 
-    // Move to container that doesn't exist
+    // Move to place that doesn't exist
     env.run(&["mv", "hammer", "new_toolbox"])
         .success()
         .stdout(predicate::str::contains("Moved"));
