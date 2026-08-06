@@ -28,10 +28,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub db: Option<PathBuf>,
 
-    /// Icons to draw beside a place
+    /// Characters to draw the tree with
     ///
-    /// "nerd" needs a patched font. Use "unicode" or "ascii" without one.
-    #[arg(long, global = true, value_enum, env = "INVY_GLYPHS", default_value_t = GlyphSet::Nerd)]
+    /// "nerd" needs a patched font. "unicode" works anywhere, "ascii" is for pipes.
+    #[arg(long, global = true, value_enum, env = "INVY_GLYPHS", default_value_t = GlyphSet::Unicode)]
     pub glyphs: GlyphSet,
 }
 

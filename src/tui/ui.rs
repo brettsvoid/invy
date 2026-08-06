@@ -7,6 +7,7 @@ use ratatui::widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Wrap}
 use ratatui::Frame;
 
 use super::app::{App, Mode, StatusKind};
+use crate::model::glyph_set;
 
 const ACCENT: Color = Color::Cyan;
 const MUTED: Color = Color::DarkGray;
@@ -81,20 +82,36 @@ fn row(node: &super::app::Node) -> Line<'static> {
         spans.push(Span::styled(place.clone(), Style::default().fg(MUTED)));
         spans.push(Span::raw(node.name.clone()));
     } else {
+        let set = glyph_set();
+        let tree = set.tree();
+
         let mut prefix = String::new();
         for has_more in &node.ancestors {
-            prefix.push_str(if *has_more { "│  " } else { "   " });
+            prefix.push_str(if *has_more { tree.pipe } else { " " });
+            prefix.push_str("  ");
         }
         if node.depth > 0 {
-            prefix.push_str(if node.is_last { "└─ " } else { "├─ " });
+            prefix.push_str(if node.is_last { tree.elbow } else { tree.tee });
+            prefix.push_str(tree.dash);
+            prefix.push(' ');
         }
         spans.push(Span::styled(prefix, Style::default().fg(MUTED)));
 
         if node.child_count > 0 {
-            let marker = if node.expanded { "▾ " } else { "▸ " };
-            spans.push(Span::styled(marker, Style::default().fg(ACCENT)));
+            let marker = if node.expanded {
+                set.expanded()
+            } else {
+                set.collapsed()
+            };
+            spans.push(Span::styled(
+                format!("{marker} "),
+                Style::default().fg(ACCENT),
+            ));
         } else {
-            spans.push(Span::styled("· ", Style::default().fg(MUTED)));
+            spans.push(Span::styled(
+                format!("{} ", set.leaf()),
+                Style::default().fg(MUTED),
+            ));
         }
 
         if let Some(glyph) = node.kind.glyph() {

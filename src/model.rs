@@ -4,16 +4,79 @@ use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 
-/// Which icons to draw beside a place.
+/// Which characters to draw the tree with.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
 pub enum GlyphSet {
-    /// Nerd Font icons. Needs a patched font, or they show as blank boxes.
-    #[default]
-    Nerd,
     /// Geometric shapes from the base Unicode planes. Works in any font.
+    #[default]
     Unicode,
-    /// No icons at all. Use this when piping to something that cannot draw them.
+    /// Nerd Font icons. Needs a patched font, or they show as blank boxes.
+    Nerd,
+    /// Plain ASCII. Use this when piping to something that cannot draw the rest.
     Ascii,
+}
+
+/// The pieces a tree is drawn from.
+pub struct TreePieces {
+    /// A branch with siblings below it.
+    pub tee: &'static str,
+    /// The last branch at its level.
+    pub elbow: &'static str,
+    /// Carries an ancestor's line down past a row.
+    pub pipe: &'static str,
+    /// Reaches from a branch across to the name.
+    pub dash: &'static str,
+}
+
+impl GlyphSet {
+    /// Marker for a place showing its contents.
+    ///
+    /// The Nerd Font markers are Codicons, the set VS Code draws its own tree
+    /// views with.
+    pub fn expanded(self) -> &'static str {
+        match self {
+            GlyphSet::Unicode => "▾",
+            GlyphSet::Nerd => "\u{eb6e}",
+            GlyphSet::Ascii => "v",
+        }
+    }
+
+    /// Marker for a place hiding its contents.
+    pub fn collapsed(self) -> &'static str {
+        match self {
+            GlyphSet::Unicode => "▸",
+            GlyphSet::Nerd => "\u{eb70}",
+            GlyphSet::Ascii => ">",
+        }
+    }
+
+    /// Marker for an item that holds nothing.
+    pub fn leaf(self) -> &'static str {
+        match self {
+            GlyphSet::Unicode => "·",
+            GlyphSet::Nerd => "\u{ec07}",
+            GlyphSet::Ascii => "-",
+        }
+    }
+
+    /// The pieces this set draws tree branches from.
+    pub fn tree(self) -> TreePieces {
+        match self {
+            GlyphSet::Ascii => TreePieces {
+                tee: "|",
+                elbow: "`",
+                pipe: "|",
+                dash: "-",
+            },
+            // Box-drawing renders in any modern font, patched or not.
+            _ => TreePieces {
+                tee: "├",
+                elbow: "└",
+                pipe: "│",
+                dash: "─",
+            },
+        }
+    }
 }
 
 static GLYPH_SET: OnceLock<GlyphSet> = OnceLock::new();
@@ -211,6 +274,29 @@ pub struct TreeItem {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every marker must be exactly one column, or the tree stops lining up.
+    #[test]
+    fn every_glyph_occupies_a_single_column() {
+        use unicode_width::UnicodeWidthStr;
+
+        for set in [GlyphSet::Unicode, GlyphSet::Nerd, GlyphSet::Ascii] {
+            for marker in [set.expanded(), set.collapsed(), set.leaf()] {
+                assert_eq!(marker.width(), 1, "{set:?} marker {marker:?}");
+            }
+
+            let tree = set.tree();
+            for piece in [tree.tee, tree.elbow, tree.pipe, tree.dash] {
+                assert_eq!(piece.width(), 1, "{set:?} branch {piece:?}");
+            }
+
+            for kind in Kind::ALL {
+                if let Some(glyph) = kind.glyph_in(set) {
+                    assert_eq!(glyph.width(), 1, "{set:?} {kind} glyph {glyph:?}");
+                }
+            }
+        }
+    }
 
     #[test]
     fn every_glyph_set_leaves_a_thing_unmarked() {

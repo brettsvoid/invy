@@ -6,7 +6,7 @@ use anyhow::Result;
 use serde::Serialize;
 use std::io;
 
-use crate::model::{ItemWithPath, Kind, ListItem, TreeItem};
+use crate::model::{glyph_set, ItemWithPath, Kind, ListItem, TreeItem};
 
 /// Output format selection.
 #[derive(Debug, Clone, Copy)]
@@ -356,11 +356,25 @@ pub fn print_tree_items(items: &[TreeItem], format: Format) -> Result<()> {
     }
 }
 
-/// Tree rendering characters
-const TREE_BRANCH: &str = "├── ";
-const TREE_LAST: &str = "└── ";
-const TREE_VERTICAL: &str = "│   ";
-const TREE_SPACE: &str = "    ";
+/// Tree rendering pieces, widened to a fixed four columns per level.
+struct TreeChars {
+    branch: String,
+    last: String,
+    vertical: String,
+    space: &'static str,
+}
+
+impl TreeChars {
+    fn current() -> Self {
+        let t = glyph_set().tree();
+        Self {
+            branch: format!("{}{}{} ", t.tee, t.dash, t.dash),
+            last: format!("{}{}{} ", t.elbow, t.dash, t.dash),
+            vertical: format!("{}   ", t.pipe),
+            space: "    ",
+        }
+    }
+}
 
 fn print_tree_items_human(items: &[TreeItem]) -> Result<()> {
     fn print_item_line(item: &TreeItem) {
@@ -377,8 +391,8 @@ fn print_tree_items_human(items: &[TreeItem]) -> Result<()> {
         println!();
     }
 
-    fn print_subtree(item: &TreeItem, prefix: &str, is_last: bool) {
-        let connector = if is_last { TREE_LAST } else { TREE_BRANCH };
+    fn print_subtree(item: &TreeItem, prefix: &str, is_last: bool, chars: &TreeChars) {
+        let connector = if is_last { &chars.last } else { &chars.branch };
 
         print!("{}{}", prefix, connector);
         print_item_line(item);
@@ -386,15 +400,20 @@ fn print_tree_items_human(items: &[TreeItem]) -> Result<()> {
         let child_prefix = format!(
             "{}{}",
             prefix,
-            if is_last { TREE_SPACE } else { TREE_VERTICAL }
+            if is_last {
+                chars.space
+            } else {
+                &chars.vertical
+            }
         );
 
         let child_count = item.children.len();
         for (i, child) in item.children.iter().enumerate() {
-            print_subtree(child, &child_prefix, i == child_count - 1);
+            print_subtree(child, &child_prefix, i == child_count - 1, chars);
         }
     }
 
+    let chars = TreeChars::current();
     for item in items {
         // Root items: print without prefix
         print_item_line(item);
@@ -402,7 +421,7 @@ fn print_tree_items_human(items: &[TreeItem]) -> Result<()> {
         // Print children with tree structure
         let child_count = item.children.len();
         for (i, child) in item.children.iter().enumerate() {
-            print_subtree(child, "", i == child_count - 1);
+            print_subtree(child, "", i == child_count - 1, &chars);
         }
     }
 

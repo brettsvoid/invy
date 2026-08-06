@@ -48,36 +48,46 @@ Output formats: `--json`, `--csv`
 Every item has a kind. The first three describe a place, and `thing` is the
 default for everything you put in one.
 
-| Kind | Nerd | Unicode | Covers |
-| ---- | ---- | ------- | ------ |
-| `room` | `󰋞` | `⌂` | A room, a loft, a shed, a garden |
-| `furniture` | `󰽊` | `▤` | A cupboard, a dresser, a shelf, a workbench |
-| `box` | `󰏗` | `▣` | A box, a bag, a case, a toolbox |
+| Kind | Unicode | Nerd | Covers |
+| ---- | ------- | ---- | ------ |
+| `room` | `⌂` | `󰋞` | A room, a loft, a shed, a garden |
+| `furniture` | `▤` | `󰽊` | A cupboard, a dresser, a shelf, a workbench |
+| `box` | `▣` | `󰏗` | A box, a bag, a case, a toolbox |
 | `thing` | | | Anything you put in a place |
 
 ```
 $ invy list --recursive
-󰋞 home [2]
-├── 󰋞 bedroom [1]
-│   └── 󰽊 dresser [1]
-│       └── 󰏗 sock drawer [1]
+⌂ home [2]
+├── ⌂ bedroom [1]
+│   └── ▤ dresser [1]
+│       └── ▣ sock drawer [1]
 │           └── socks
-└── 󰋞 garage [1]
-    └── 󰏗 toolbox [1]
+└── ⌂ garage [1]
+    └── ▣ toolbox [1]
         └── hammer (16oz claw)
 ```
 
-### Glyphs
+## Glyphs
 
-Places are drawn with Nerd Font icons by default (`md-home_variant`,
-`md-dresser`, `md-package_variant_closed`). They live in the Private Use Area,
-so a terminal without a patched font shows blank boxes. Two fallbacks:
+`--glyphs` picks what the tree is drawn with. `INVY_GLYPHS` sets it once, and
+the flag wins over the environment.
+
+| Set | Kinds | Folds | Branches | Needs |
+| --- | ----- | ----- | -------- | ----- |
+| `unicode` (default) | `⌂ ▤ ▣` | `▾ ▸ ·` | `├── └── │` | any font |
+| `nerd` | `󰋞 󰽊 󰏗` | `  ` | `├── └── │` | a patched font |
+| `ascii` | none | `v > -` | `\|--` `` `-- `` `\|` | nothing |
 
 ```bash
-invy list --recursive --glyphs unicode   # ⌂ ▤ ▣, works in any font
-invy list --recursive --glyphs ascii     # no icons, good for pipes
-export INVY_GLYPHS=unicode               # or set it once
+invy list --recursive --glyphs nerd
+export INVY_GLYPHS=nerd            # or set it once
+invy list --recursive --glyphs ascii | mail -s inventory me@example.com
 ```
+
+With `nerd`, kinds are Material Design icons (`md-home_variant`, `md-dresser`,
+`md-package_variant_closed`) and folds are Codicons, the set VS Code draws its
+own tree views with. All of them sit in the Private Use Area, so a terminal
+without a patched font shows blank boxes.
 
 Use a **Mono** Nerd Font variant. The others draw icons double-width while the
 terminal reserves one cell, which breaks the tree alignment.

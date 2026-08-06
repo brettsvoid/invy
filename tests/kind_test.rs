@@ -125,36 +125,41 @@ fn seeded() -> TestEnv {
 }
 
 #[test]
-fn the_recursive_tree_marks_places_with_nerd_glyphs_by_default() {
+fn the_recursive_tree_uses_unicode_shapes_by_default() {
     let env = seeded();
 
     env.run(&["list", "--recursive"])
         .success()
-        .stdout(predicate::str::contains("\u{f02de} garage"))
-        .stdout(predicate::str::contains("\u{f03d7} toolbox"))
+        .stdout(predicate::str::contains("⌂ garage"))
+        .stdout(predicate::str::contains("▣ toolbox"))
         // A plain thing carries no glyph.
         .stdout(predicate::str::contains("── hammer"));
 }
 
 #[test]
-fn the_unicode_glyph_set_needs_no_patched_font() {
+fn the_nerd_glyph_set_draws_private_use_area_icons() {
     let env = seeded();
 
-    env.run(&["list", "--recursive", "--glyphs", "unicode"])
+    env.run(&["list", "--recursive", "--glyphs", "nerd"])
         .success()
-        .stdout(predicate::str::contains("⌂ garage"))
-        .stdout(predicate::str::contains("▣ toolbox"));
+        .stdout(predicate::str::contains("\u{f02de} garage"))
+        .stdout(predicate::str::contains("\u{f03d7} toolbox"))
+        .stdout(predicate::str::contains("⌂").not());
 }
 
 #[test]
-fn the_ascii_glyph_set_draws_no_icons() {
+fn the_ascii_glyph_set_draws_no_icons_and_no_box_drawing() {
     let env = seeded();
 
     env.run(&["list", "--recursive", "--glyphs", "ascii"])
         .success()
-        .stdout(predicate::str::contains("garage"))
+        .stdout(predicate::str::contains("`-- toolbox"))
         .stdout(predicate::str::contains("⌂").not())
-        .stdout(predicate::str::contains("\u{f02de}").not());
+        .stdout(predicate::str::contains("\u{f02de}").not())
+        // No box-drawing survives, so the output is safe to pipe anywhere.
+        .stdout(predicate::str::contains("├").not())
+        .stdout(predicate::str::contains("└").not())
+        .stdout(predicate::str::contains("│").not());
 }
 
 #[test]
@@ -162,11 +167,11 @@ fn the_glyph_set_can_come_from_the_environment() {
     let env = seeded();
 
     env.cmd()
-        .env("INVY_GLYPHS", "unicode")
+        .env("INVY_GLYPHS", "nerd")
         .args(["list", "--recursive"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("⌂ garage"));
+        .stdout(predicate::str::contains("\u{f02de} garage"));
 }
 
 #[test]
@@ -174,11 +179,12 @@ fn the_flag_beats_the_environment() {
     let env = seeded();
 
     env.cmd()
-        .env("INVY_GLYPHS", "unicode")
+        .env("INVY_GLYPHS", "nerd")
         .args(["list", "--recursive", "--glyphs", "ascii"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("⌂").not());
+        .stdout(predicate::str::contains("\u{f02de}").not())
+        .stdout(predicate::str::contains("`-- toolbox"));
 }
 
 #[test]

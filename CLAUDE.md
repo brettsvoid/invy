@@ -45,7 +45,11 @@ Single `items` table with self-referential `place_id` foreign key. ON DELETE SET
 
 Each item also has a `kind`: `room`, `furniture`, `box` or `thing` (the default). The set is a fixed enum in `model.rs`, not user-extensible. It is descriptive only — nothing restricts what can go where.
 
-Kinds draw as glyphs from a `GlyphSet` (`nerd` by default, `unicode`, `ascii`), chosen by `--glyphs` / `INVY_GLYPHS` and stored in a `OnceLock` in `model.rs`. `Kind::glyph()` reads it; `Kind::glyph_in(set)` is the pure version to test against. Nerd Font codepoints were picked by reading the `post` table of an installed patched font, not from memory — do the same before changing them.
+`GlyphSet` (`unicode` by default, `nerd`, `ascii`) decides kind icons, fold markers and tree branches. It is chosen by `--glyphs` / `INVY_GLYPHS` and stored in a `OnceLock` in `model.rs`. `Kind::glyph()` reads it; `Kind::glyph_in(set)` is the pure version to test against.
+
+Every glyph must be one display column, or the TUI tree stops lining up. `every_glyph_occupies_a_single_column` in `model.rs` enforces this — keep it passing when adding a glyph.
+
+Nerd Font codepoints were picked by reading the `post` table of an installed patched font and rendering candidates, not from memory. Do the same before changing them: the `post` table maps glyph ids to names like `md-dresser`, so you can search by name rather than guess.
 
 ### Migrations
 

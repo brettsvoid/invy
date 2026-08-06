@@ -25,8 +25,19 @@ a fourth kind. The first three describe a place. `thing` is the default.
 | `box` | `md-package_variant_closed` U+F03D7 | `▣` | A box, a bag, a case, a toolbox |
 | `thing` | none | none | Anything you put in a place |
 
-The glyph set is chosen with `--glyphs`. Nerd Font codepoints sit in the
-Private Use Area, so a terminal without a patched font draws blank boxes.
+The glyph set is chosen with `--glyphs`. It also decides the fold markers and
+the tree branches:
+
+| Set | Expanded | Collapsed | Leaf | Branches |
+|-----|----------|-----------|------|----------|
+| `unicode` | `▾` | `▸` | `·` | `├── └── │` |
+| `nerd` | `cod-triangle_down` U+EB6E | `cod-triangle_right` U+EB70 | `cod-circle_small` U+EC07 | `├── └── │` |
+| `ascii` | `v` | `>` | `-` | `\|--` `` `-- `` `\|` |
+
+Every glyph is one column wide, so the tree lines up in all three sets. The Nerd
+Font codepoints sit in the Private Use Area, so a terminal without a patched
+font draws blank boxes. `ascii` emits no character above U+007F, which makes it
+the one to pipe.
 
 A kind is descriptive, not structural. It does not restrict what can go where,
 and nothing else in `invy` reads it. A place auto-created on the way to an item
@@ -63,7 +74,7 @@ All commands support these flags:
 | `--json` | `-j` | Output as JSON |
 | `--csv` | | Output as CSV |
 | `--db <path>` | | Use custom database file |
-| `--glyphs <set>` | | Icons for places: `nerd` (default), `unicode`, `ascii`. Reads `INVY_GLYPHS` |
+| `--glyphs <set>` | | Tree characters: `unicode` (default), `nerd`, `ascii`. Reads `INVY_GLYPHS` |
 
 **Default database location:** `~/.invy.db`
 
@@ -252,8 +263,7 @@ workbench     furniture  -                0
 hammer        thing      claw hammer      -
 ```
 
-With `--recursive`, each place carries its kind glyph. Shown here with
-`--glyphs unicode`, so the icons render without a patched font:
+With `--recursive`, each place carries its kind glyph:
 ```
 ⌂ home [2]
 ├── ⌂ bedroom [1]
