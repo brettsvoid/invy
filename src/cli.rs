@@ -2,7 +2,7 @@
 //!
 //! See SPEC.md for full behavioral specification.
 
-use crate::model::Kind;
+use crate::model::{GlyphSet, Kind};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -27,6 +27,12 @@ pub struct Cli {
     /// Use custom database file
     #[arg(long, global = true)]
     pub db: Option<PathBuf>,
+
+    /// Icons to draw beside a place
+    ///
+    /// "nerd" needs a patched font. Use "unicode" or "ascii" without one.
+    #[arg(long, global = true, value_enum, env = "INVY_GLYPHS", default_value_t = GlyphSet::Nerd)]
+    pub glyphs: GlyphSet,
 }
 
 #[derive(Subcommand, Debug)]

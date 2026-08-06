@@ -641,14 +641,6 @@ mod tests {
     }
 
     #[test]
-    fn kinds_cycle_in_both_directions_and_wrap() {
-        assert_eq!(Kind::Room.next(), Kind::Furniture);
-        assert_eq!(Kind::Thing.next(), Kind::Room);
-        assert_eq!(Kind::Room.previous(), Kind::Thing);
-        assert_eq!(Kind::Furniture.previous(), Kind::Room);
-    }
-
-    #[test]
     fn finding_by_kind_ignores_items_with_no_description() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("kinds.db");

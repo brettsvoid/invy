@@ -21,6 +21,8 @@ impl TestEnv {
     /// Get a Command configured to use this test environment's database.
     pub fn cmd(&self) -> Command {
         let mut cmd = Command::cargo_bin("invy").expect("Failed to find invy binary");
+        // An ambient INVY_GLYPHS would change the output these tests assert on.
+        cmd.env_remove("INVY_GLYPHS");
         cmd.arg("--db").arg(&self.db_path);
         cmd
     }

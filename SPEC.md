@@ -18,12 +18,15 @@ A place is just an item that contains other items. There's no distinction betwee
 Every item has a kind. The set is fixed, so a typo is a parse error rather than
 a fourth kind. The first three describe a place. `thing` is the default.
 
-| Kind | Glyph | Covers |
-|------|-------|--------|
-| `room` | `⌂` | A room, a loft, a shed, a garden |
-| `furniture` | `▤` | A cupboard, a dresser, a shelf, a workbench |
-| `box` | `▣` | A box, a bag, a case, a toolbox |
-| `thing` | none | Anything you put in a place |
+| Kind | Nerd Font | Unicode | Covers |
+|------|-----------|---------|--------|
+| `room` | `md-home_variant` U+F02DE | `⌂` | A room, a loft, a shed, a garden |
+| `furniture` | `md-dresser` U+F0F4A | `▤` | A cupboard, a dresser, a shelf, a workbench |
+| `box` | `md-package_variant_closed` U+F03D7 | `▣` | A box, a bag, a case, a toolbox |
+| `thing` | none | none | Anything you put in a place |
+
+The glyph set is chosen with `--glyphs`. Nerd Font codepoints sit in the
+Private Use Area, so a terminal without a patched font draws blank boxes.
 
 A kind is descriptive, not structural. It does not restrict what can go where,
 and nothing else in `invy` reads it. A place auto-created on the way to an item
@@ -60,8 +63,11 @@ All commands support these flags:
 | `--json` | `-j` | Output as JSON |
 | `--csv` | | Output as CSV |
 | `--db <path>` | | Use custom database file |
+| `--glyphs <set>` | | Icons for places: `nerd` (default), `unicode`, `ascii`. Reads `INVY_GLYPHS` |
 
 **Default database location:** `~/.invy.db`
+
+`--glyphs` on the command line beats `INVY_GLYPHS` in the environment.
 
 ---
 
@@ -246,7 +252,8 @@ workbench     furniture  -                0
 hammer        thing      claw hammer      -
 ```
 
-With `--recursive`, each place carries its kind glyph:
+With `--recursive`, each place carries its kind glyph. Shown here with
+`--glyphs unicode`, so the icons render without a patched font:
 ```
 ⌂ home [2]
 ├── ⌂ bedroom [1]

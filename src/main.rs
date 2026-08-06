@@ -16,6 +16,8 @@ use cli::{Cli, Commands};
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    model::set_glyph_set(cli.glyphs);
+
     let db_path = cli.db.as_deref();
 
     match cli.command {

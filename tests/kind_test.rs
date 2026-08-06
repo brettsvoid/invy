@@ -114,20 +114,80 @@ fn list_shows_a_kind_column() {
         .stdout(predicate::str::contains("room"));
 }
 
-#[test]
-fn the_recursive_tree_marks_places_with_a_glyph() {
+/// Seed a room holding a box holding a plain thing.
+fn seeded() -> TestEnv {
     let env = TestEnv::new();
     env.run(&["add", "garage", "--kind", "room"]).success();
     env.run(&["add", "toolbox", "--in", "garage", "--kind", "box"])
         .success();
     env.add_into("hammer", "garage/toolbox").success();
+    env
+}
+
+#[test]
+fn the_recursive_tree_marks_places_with_nerd_glyphs_by_default() {
+    let env = seeded();
 
     env.run(&["list", "--recursive"])
         .success()
-        .stdout(predicate::str::contains("⌂ garage"))
-        .stdout(predicate::str::contains("▣ toolbox"))
+        .stdout(predicate::str::contains("\u{f02de} garage"))
+        .stdout(predicate::str::contains("\u{f03d7} toolbox"))
         // A plain thing carries no glyph.
         .stdout(predicate::str::contains("── hammer"));
+}
+
+#[test]
+fn the_unicode_glyph_set_needs_no_patched_font() {
+    let env = seeded();
+
+    env.run(&["list", "--recursive", "--glyphs", "unicode"])
+        .success()
+        .stdout(predicate::str::contains("⌂ garage"))
+        .stdout(predicate::str::contains("▣ toolbox"));
+}
+
+#[test]
+fn the_ascii_glyph_set_draws_no_icons() {
+    let env = seeded();
+
+    env.run(&["list", "--recursive", "--glyphs", "ascii"])
+        .success()
+        .stdout(predicate::str::contains("garage"))
+        .stdout(predicate::str::contains("⌂").not())
+        .stdout(predicate::str::contains("\u{f02de}").not());
+}
+
+#[test]
+fn the_glyph_set_can_come_from_the_environment() {
+    let env = seeded();
+
+    env.cmd()
+        .env("INVY_GLYPHS", "unicode")
+        .args(["list", "--recursive"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("⌂ garage"));
+}
+
+#[test]
+fn the_flag_beats_the_environment() {
+    let env = seeded();
+
+    env.cmd()
+        .env("INVY_GLYPHS", "unicode")
+        .args(["list", "--recursive", "--glyphs", "ascii"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("⌂").not());
+}
+
+#[test]
+fn an_unknown_glyph_set_is_rejected() {
+    let env = TestEnv::new();
+
+    env.run(&["list", "--glyphs", "emoji"])
+        .failure()
+        .stderr(predicate::str::contains("invalid value"));
 }
 
 #[test]

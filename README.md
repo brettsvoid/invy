@@ -48,24 +48,39 @@ Output formats: `--json`, `--csv`
 Every item has a kind. The first three describe a place, and `thing` is the
 default for everything you put in one.
 
-| Kind | Glyph | Covers |
-| ---- | ----- | ------ |
-| `room` | `⌂` | A room, a loft, a shed, a garden |
-| `furniture` | `▤` | A cupboard, a dresser, a shelf, a workbench |
-| `box` | `▣` | A box, a bag, a case, a toolbox |
-| `thing` | | Anything you put in a place |
+| Kind | Nerd | Unicode | Covers |
+| ---- | ---- | ------- | ------ |
+| `room` | `󰋞` | `⌂` | A room, a loft, a shed, a garden |
+| `furniture` | `󰽊` | `▤` | A cupboard, a dresser, a shelf, a workbench |
+| `box` | `󰏗` | `▣` | A box, a bag, a case, a toolbox |
+| `thing` | | | Anything you put in a place |
 
 ```
 $ invy list --recursive
-⌂ home [2]
-├── ⌂ bedroom [1]
-│   └── ▤ dresser [1]
-│       └── ▣ sock drawer [1]
+󰋞 home [2]
+├── 󰋞 bedroom [1]
+│   └── 󰽊 dresser [1]
+│       └── 󰏗 sock drawer [1]
 │           └── socks
-└── ⌂ garage [1]
-    └── ▣ toolbox [1]
+└── 󰋞 garage [1]
+    └── 󰏗 toolbox [1]
         └── hammer (16oz claw)
 ```
+
+### Glyphs
+
+Places are drawn with Nerd Font icons by default (`md-home_variant`,
+`md-dresser`, `md-package_variant_closed`). They live in the Private Use Area,
+so a terminal without a patched font shows blank boxes. Two fallbacks:
+
+```bash
+invy list --recursive --glyphs unicode   # ⌂ ▤ ▣, works in any font
+invy list --recursive --glyphs ascii     # no icons, good for pipes
+export INVY_GLYPHS=unicode               # or set it once
+```
+
+Use a **Mono** Nerd Font variant. The others draw icons double-width while the
+terminal reserves one cell, which breaks the tree alignment.
 
 ## Interactive mode
 
