@@ -89,6 +89,7 @@ fn build_item_tree(items: &[Item], conn: &Connection) -> Vec<TreeItem> {
                             name: item.name.clone(),
                             description: item.description.clone(),
                             child_count,
+                            kind: item.kind,
                             children: build_subtree(Some(item.id), children_map, conn),
                         }
                     })

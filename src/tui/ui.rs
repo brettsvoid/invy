@@ -93,12 +93,23 @@ fn row(node: &super::app::Node) -> Line<'static> {
         if node.child_count > 0 {
             let marker = if node.expanded { "▾ " } else { "▸ " };
             spans.push(Span::styled(marker, Style::default().fg(ACCENT)));
+        } else {
+            spans.push(Span::styled("· ", Style::default().fg(MUTED)));
+        }
+
+        if let Some(glyph) = node.kind.glyph() {
+            spans.push(Span::styled(
+                format!("{glyph} "),
+                Style::default().fg(Color::Yellow),
+            ));
+        }
+
+        if node.child_count > 0 {
             spans.push(Span::styled(
                 node.name.clone(),
                 Style::default().add_modifier(Modifier::BOLD),
             ));
         } else {
-            spans.push(Span::styled("· ", Style::default().fg(MUTED)));
             spans.push(Span::raw(node.name.clone()));
         }
     }
@@ -128,6 +139,8 @@ fn draw_details(frame: &mut Frame, app: &App, area: Rect) {
         field("Name", node.name.clone()),
         field("Path", path.join(" / ")),
     ];
+
+    lines.push(field("Kind", node.kind.to_string()));
 
     if node.child_count > 0 {
         let plural = if node.child_count == 1 {
@@ -194,7 +207,7 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
             Line::from(Span::styled(message.clone(), Style::default().fg(colour)))
         }
         None => Line::from(Span::styled(
-            " j/k move  ⏎ toggle  a add  r rename  d describe  m move  x remove  / search  ? help  q quit",
+            " j/k move  ⏎ toggle  a add  r rename  d describe  t kind  m move  x remove  / search  ? help  q quit",
             Style::default().fg(MUTED),
         )),
     };
@@ -263,6 +276,7 @@ fn draw_help(frame: &mut Frame) {
         ("r", "rename the selection"),
         ("d", "edit the description"),
         ("m", "move to another place"),
+        ("t / T", "next and previous kind"),
         ("x / Del", "remove the selection"),
         ("R", "reload from the database"),
         ("? ", "this help"),

@@ -97,6 +97,6 @@ fn add_with_csv_output() {
 
     env.run(&["add", "hammer", "--csv"])
         .success()
-        .stdout(predicate::str::contains("id,name,description,place"))
+        .stdout(predicate::str::contains("id,name,description,kind,place"))
         .stdout(predicate::str::contains("hammer"));
 }

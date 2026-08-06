@@ -6,7 +6,7 @@ use anyhow::Result;
 use serde::Serialize;
 use std::io;
 
-use crate::model::{ItemWithPath, ListItem, TreeItem};
+use crate::model::{ItemWithPath, Kind, ListItem, TreeItem};
 
 /// Output format selection.
 #[derive(Debug, Clone, Copy)]
@@ -69,12 +69,13 @@ pub fn print_added(item: &ItemWithPath, format: Format) -> Result<()> {
         }
         Format::Json => print_json(item),
         Format::Csv => {
-            println!("id,name,description,place");
+            println!("id,name,description,kind,place");
             println!(
-                "{},{},{},{}",
+                "{},{},{},{},{}",
                 item.id,
                 item.name,
                 item.description.as_deref().unwrap_or(""),
+                item.kind,
                 if item.path.len() > 1 {
                     item.path[item.path.len() - 2].clone()
                 } else {
@@ -155,6 +156,7 @@ pub fn print_updated(
     item: &ItemWithPath,
     old_name: Option<&str>,
     old_desc: Option<Option<&str>>,
+    old_kind: Option<Kind>,
     format: Format,
 ) -> Result<()> {
     match format {
@@ -175,6 +177,12 @@ pub fn print_updated(
                         old_d.unwrap_or("(none)"),
                         new_d.unwrap_or("(none)")
                     );
+                }
+            }
+
+            if let Some(old_k) = old_kind {
+                if old_k != item.kind {
+                    println!("  kind: {} -> {}", old_k, item.kind);
                 }
             }
             Ok(())
@@ -208,6 +216,7 @@ fn print_item_human(item: &ItemWithPath) -> Result<()> {
         }
     }
 
+    println!("Kind:        {}", item.kind);
     println!("Created:     {}", item.created_at);
     println!("Updated:     {}", item.updated_at);
 
@@ -240,11 +249,20 @@ fn print_list_items_human(items: &[ListItem]) -> Result<()> {
         .max(11);
 
     // Header
+    let max_kind = items
+        .iter()
+        .map(|i| i.kind.as_str().len())
+        .max()
+        .unwrap_or(4)
+        .max(4);
+
     println!(
-        "{:<width_name$} {:<width_desc$} ITEMS",
+        "{:<width_name$} {:<width_kind$} {:<width_desc$} ITEMS",
         "NAME",
+        "KIND",
         "DESCRIPTION",
         width_name = max_name,
+        width_kind = max_kind,
         width_desc = max_desc
     );
 
@@ -257,11 +275,13 @@ fn print_list_items_human(items: &[ListItem]) -> Result<()> {
             "-".to_string()
         };
         println!(
-            "{:<width_name$} {:<width_desc$} {}",
+            "{:<width_name$} {:<width_kind$} {:<width_desc$} {}",
             item.name,
+            item.kind.as_str(),
             desc,
             items_str,
             width_name = max_name,
+            width_kind = max_kind,
             width_desc = max_desc
         );
     }
@@ -281,11 +301,12 @@ fn print_json<T: Serialize + ?Sized>(value: &T) -> Result<()> {
 
 fn print_item_csv(item: &ItemWithPath) -> Result<()> {
     let mut wtr = csv::Writer::from_writer(io::stdout());
-    wtr.write_record(["id", "name", "description", "path"])?;
+    wtr.write_record(["id", "name", "description", "kind", "path"])?;
     wtr.write_record([
         &item.id.to_string(),
         &item.name,
         item.description.as_deref().unwrap_or(""),
+        item.kind.as_str(),
         &item.path.join("/"),
     ])?;
     wtr.flush()?;
@@ -294,12 +315,13 @@ fn print_item_csv(item: &ItemWithPath) -> Result<()> {
 
 fn print_items_csv(items: &[ItemWithPath]) -> Result<()> {
     let mut wtr = csv::Writer::from_writer(io::stdout());
-    wtr.write_record(["id", "name", "description", "path"])?;
+    wtr.write_record(["id", "name", "description", "kind", "path"])?;
     for item in items {
         wtr.write_record([
             &item.id.to_string(),
             &item.name,
             item.description.as_deref().unwrap_or(""),
+            item.kind.as_str(),
             &item.path.join("/"),
         ])?;
     }
@@ -309,12 +331,13 @@ fn print_items_csv(items: &[ItemWithPath]) -> Result<()> {
 
 fn print_list_items_csv(items: &[ListItem]) -> Result<()> {
     let mut wtr = csv::Writer::from_writer(io::stdout());
-    wtr.write_record(["id", "name", "description", "child_count"])?;
+    wtr.write_record(["id", "name", "description", "kind", "child_count"])?;
     for item in items {
         wtr.write_record([
             &item.id.to_string(),
             &item.name,
             item.description.as_deref().unwrap_or(""),
+            item.kind.as_str(),
             &item.child_count.to_string(),
         ])?;
     }
@@ -341,6 +364,9 @@ const TREE_SPACE: &str = "    ";
 
 fn print_tree_items_human(items: &[TreeItem]) -> Result<()> {
     fn print_item_line(item: &TreeItem) {
+        if let Some(glyph) = item.kind.glyph() {
+            print!("{} ", glyph);
+        }
         print!("{}", item.name);
         if let Some(ref desc) = item.description {
             print!(" ({})", desc);
@@ -392,6 +418,7 @@ fn print_tree_items_csv(items: &[TreeItem]) -> Result<()> {
                 name: item.name.clone(),
                 description: item.description.clone(),
                 child_count: item.child_count,
+                kind: item.kind,
             });
             collect_flat(&item.children, result);
         }

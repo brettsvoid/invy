@@ -6,7 +6,7 @@ use anyhow::{anyhow, Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 
-use crate::model::Item;
+use crate::model::{Item, Kind};
 
 /// Get the default database path (~/.invy.db)
 pub fn default_db_path() -> Result<PathBuf> {
@@ -30,7 +30,7 @@ pub fn open(path: Option<&Path>) -> Result<Connection> {
 }
 
 /// Schema version this build expects. Bump it for every new migration step.
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 /// Bring the database up to `SCHEMA_VERSION`.
 ///
@@ -86,10 +86,34 @@ fn migrate(conn: &Connection) -> Result<()> {
         .context("Failed to rebuild the place indexes")?;
     }
 
+    if version < 3 {
+        // Every existing row becomes a 'thing'. The user reclassifies the
+        // places afterwards, with `invy edit --kind` or the TUI.
+        if !has_column(conn, "items", "kind")? {
+            conn.execute_batch("ALTER TABLE items ADD COLUMN kind TEXT NOT NULL DEFAULT 'thing'")
+                .context("Failed to add the kind column")?;
+        }
+        conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_items_kind ON items(kind)")
+            .context("Failed to create the kind index")?;
+    }
+
     conn.pragma_update(None, "user_version", SCHEMA_VERSION)
         .context("Failed to record the schema version")?;
 
     Ok(())
+}
+
+/// Build an `Item` from a row selecting the columns in their canonical order.
+fn item_from_row(row: &rusqlite::Row) -> rusqlite::Result<Item> {
+    Ok(Item {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        description: row.get(2)?,
+        place_id: row.get(3)?,
+        kind: Kind::from_db(&row.get::<_, String>(4)?),
+        created_at: row.get(5)?,
+        updated_at: row.get(6)?,
+    })
 }
 
 /// Whether `table` currently has a column called `column`.
@@ -113,10 +137,11 @@ pub fn insert_item(
     name: &str,
     description: Option<&str>,
     place_id: Option<i64>,
+    kind: Kind,
 ) -> Result<Item> {
     conn.execute(
-        "INSERT INTO items (name, description, place_id) VALUES (?1, ?2, ?3)",
-        params![name, description, place_id],
+        "INSERT INTO items (name, description, place_id, kind) VALUES (?1, ?2, ?3, ?4)",
+        params![name, description, place_id, kind],
     )
     .with_context(|| format!("Failed to insert item '{}'", name))?;
 
@@ -127,21 +152,10 @@ pub fn insert_item(
 /// Get an item by ID.
 pub fn get_item_by_id(conn: &Connection, id: i64) -> Result<Option<Item>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, description, place_id, created_at, updated_at FROM items WHERE id = ?1",
+        "SELECT id, name, description, place_id, kind, created_at, updated_at FROM items WHERE id = ?1",
     )?;
 
-    let item = stmt
-        .query_row(params![id], |row| {
-            Ok(Item {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                description: row.get(2)?,
-                place_id: row.get(3)?,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
-            })
-        })
-        .optional()?;
+    let item = stmt.query_row(params![id], item_from_row).optional()?;
 
     Ok(item)
 }
@@ -170,21 +184,12 @@ pub fn get_item_by_name(conn: &Connection, name: &str) -> Result<Option<Item>> {
 /// Find items by exact name (may return multiple if in different places).
 pub fn find_items_by_exact_name(conn: &Connection, name: &str) -> Result<Vec<Item>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, description, place_id, created_at, updated_at
+        "SELECT id, name, description, place_id, kind, created_at, updated_at
          FROM items WHERE name = ?1",
     )?;
 
     let items = stmt
-        .query_map(params![name], |row| {
-            Ok(Item {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                description: row.get(2)?,
-                place_id: row.get(3)?,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
-            })
-        })?
+        .query_map(params![name], item_from_row)?
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(items)
@@ -203,21 +208,12 @@ pub fn get_item_by_path(conn: &Connection, path: &str) -> Result<Option<Item>> {
 
     for part in parts {
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, place_id, created_at, updated_at
+            "SELECT id, name, description, place_id, kind, created_at, updated_at
              FROM items WHERE name = ?1 AND place_id IS ?2",
         )?;
 
         current_item = stmt
-            .query_row(params![part, current_place_id], |row| {
-                Ok(Item {
-                    id: row.get(0)?,
-                    name: row.get(1)?,
-                    description: row.get(2)?,
-                    place_id: row.get(3)?,
-                    created_at: row.get(4)?,
-                    updated_at: row.get(5)?,
-                })
-            })
+            .query_row(params![part, current_place_id], item_from_row)
             .optional()?;
 
         match &current_item {
@@ -261,23 +257,14 @@ pub fn search_items(conn: &Connection, query: &str) -> Result<Vec<Item>> {
     let pattern = format!("%{}%", query);
 
     let mut stmt = conn.prepare(
-        "SELECT id, name, description, place_id, created_at, updated_at
+        "SELECT id, name, description, place_id, kind, created_at, updated_at
          FROM items
          WHERE name LIKE ?1 COLLATE NOCASE
             OR description LIKE ?1 COLLATE NOCASE",
     )?;
 
     let items = stmt
-        .query_map(params![pattern], |row| {
-            Ok(Item {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                description: row.get(2)?,
-                place_id: row.get(3)?,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
-            })
-        })?
+        .query_map(params![pattern], item_from_row)?
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(items)
@@ -286,21 +273,12 @@ pub fn search_items(conn: &Connection, query: &str) -> Result<Vec<Item>> {
 /// List items at root level (no place).
 pub fn list_root_items(conn: &Connection) -> Result<Vec<Item>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, description, place_id, created_at, updated_at
+        "SELECT id, name, description, place_id, kind, created_at, updated_at
          FROM items WHERE place_id IS NULL",
     )?;
 
     let items = stmt
-        .query_map([], |row| {
-            Ok(Item {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                description: row.get(2)?,
-                place_id: row.get(3)?,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
-            })
-        })?
+        .query_map([], item_from_row)?
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(items)
@@ -309,21 +287,12 @@ pub fn list_root_items(conn: &Connection) -> Result<Vec<Item>> {
 /// List items in a specific place.
 pub fn list_items_in_place(conn: &Connection, place_id: i64) -> Result<Vec<Item>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, description, place_id, created_at, updated_at
+        "SELECT id, name, description, place_id, kind, created_at, updated_at
          FROM items WHERE place_id = ?1",
     )?;
 
     let items = stmt
-        .query_map(params![place_id], |row| {
-            Ok(Item {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                description: row.get(2)?,
-                place_id: row.get(3)?,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
-            })
-        })?
+        .query_map(params![place_id], item_from_row)?
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(items)
@@ -331,20 +300,12 @@ pub fn list_items_in_place(conn: &Connection, place_id: i64) -> Result<Vec<Item>
 
 /// List all items recursively.
 pub fn list_all_items(conn: &Connection) -> Result<Vec<Item>> {
-    let mut stmt =
-        conn.prepare("SELECT id, name, description, place_id, created_at, updated_at FROM items")?;
+    let mut stmt = conn.prepare(
+        "SELECT id, name, description, place_id, kind, created_at, updated_at FROM items",
+    )?;
 
     let items = stmt
-        .query_map([], |row| {
-            Ok(Item {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                description: row.get(2)?,
-                place_id: row.get(3)?,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
-            })
-        })?
+        .query_map([], item_from_row)?
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(items)
@@ -380,6 +341,33 @@ pub fn update_item_description(
         params![new_description, item_id],
     )?;
     Ok(())
+}
+
+/// Update an item's kind.
+pub fn update_item_kind(conn: &Connection, item_id: i64, kind: Kind) -> Result<()> {
+    conn.execute(
+        "UPDATE items SET kind = ?1, updated_at = datetime('now') WHERE id = ?2",
+        params![kind, item_id],
+    )?;
+    Ok(())
+}
+
+/// Find items of one kind, optionally narrowed by a name or description match.
+pub fn find_items_by_kind(conn: &Connection, kind: Kind, query: Option<&str>) -> Result<Vec<Item>> {
+    let pattern = format!("%{}%", query.unwrap_or(""));
+
+    let mut stmt = conn.prepare(
+        "SELECT id, name, description, place_id, kind, created_at, updated_at
+         FROM items
+         WHERE kind = ?1
+           AND (name LIKE ?2 COLLATE NOCASE OR description LIKE ?2 COLLATE NOCASE)",
+    )?;
+
+    let items = stmt
+        .query_map(params![kind, pattern], item_from_row)?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(items)
 }
 
 /// Move an item to a new place.
@@ -434,7 +422,7 @@ pub fn get_or_create_place(conn: &Connection, name: &str) -> Result<Item> {
     }
 
     // Create new place
-    insert_item(conn, name, None, None)
+    insert_item(conn, name, None, None, Kind::Thing)
 }
 
 /// Resolve a place reference, creating if necessary.
@@ -466,7 +454,7 @@ pub fn resolve_or_create_place(conn: &Connection, reference: &str) -> Result<Ite
                     Some(item)
                 }
                 None => {
-                    let new_item = insert_item(conn, part, None, current_place_id)?;
+                    let new_item = insert_item(conn, part, None, current_place_id, Kind::Thing)?;
                     current_place_id = Some(new_item.id);
                     Some(new_item)
                 }
@@ -476,7 +464,7 @@ pub fn resolve_or_create_place(conn: &Connection, reference: &str) -> Result<Ite
         current_item.ok_or_else(|| anyhow!("Failed to create place path"))
     } else {
         // Simple name - create at root
-        insert_item(conn, reference, None, None)
+        insert_item(conn, reference, None, None, Kind::Thing)
     }
 }
 
@@ -562,7 +550,12 @@ mod tests {
 
         assert_eq!(
             index_names(&conn),
-            ["idx_items_name", "idx_items_name_place", "idx_items_place"]
+            [
+                "idx_items_kind",
+                "idx_items_name",
+                "idx_items_name_place",
+                "idx_items_place"
+            ]
         );
     }
 
@@ -575,9 +568,9 @@ mod tests {
         let conn = open(Some(&path)).unwrap();
 
         // 'hammer' already sits in toolbox (id 2).
-        assert!(insert_item(&conn, "hammer", None, Some(2)).is_err());
+        assert!(insert_item(&conn, "hammer", None, Some(2), Kind::Thing).is_err());
         // The same name in another place is still fine.
-        assert!(insert_item(&conn, "hammer", None, Some(1)).is_ok());
+        assert!(insert_item(&conn, "hammer", None, Some(1), Kind::Thing).is_ok());
     }
 
     #[test]
@@ -593,6 +586,83 @@ mod tests {
         assert_eq!(list_all_items(&conn).unwrap().len(), 3);
     }
 
+    /// Write a database in the version 2 schema, before kind existed.
+    fn v2_database(path: &Path) -> Connection {
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                description TEXT,
+                place_id INTEGER REFERENCES items(id) ON DELETE SET NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX idx_items_name ON items(name);
+            CREATE INDEX idx_items_place ON items(place_id);
+            CREATE UNIQUE INDEX idx_items_name_place
+                ON items(name, COALESCE(place_id, 0));
+
+            INSERT INTO items (id, name, place_id) VALUES (1, 'garage', NULL);
+            PRAGMA user_version = 2;
+            "#,
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn a_version_2_database_gains_kind_with_every_row_a_thing() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("v2.db");
+        drop(v2_database(&path));
+
+        let conn = open(Some(&path)).unwrap();
+
+        assert_eq!(user_version(&conn), SCHEMA_VERSION);
+        assert_eq!(get_item_by_id(&conn, 1).unwrap().unwrap().kind, Kind::Thing);
+    }
+
+    #[test]
+    fn an_unknown_kind_in_the_database_reads_as_a_thing() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("odd.db");
+        let conn = open(Some(&path)).unwrap();
+        insert_item(&conn, "garage", None, None, Kind::Room).unwrap();
+
+        conn.execute(
+            "UPDATE items SET kind = 'wardrobe' WHERE name = 'garage'",
+            [],
+        )
+        .unwrap();
+
+        assert_eq!(get_item_by_id(&conn, 1).unwrap().unwrap().kind, Kind::Thing);
+    }
+
+    #[test]
+    fn kinds_cycle_in_both_directions_and_wrap() {
+        assert_eq!(Kind::Room.next(), Kind::Furniture);
+        assert_eq!(Kind::Thing.next(), Kind::Room);
+        assert_eq!(Kind::Room.previous(), Kind::Thing);
+        assert_eq!(Kind::Furniture.previous(), Kind::Room);
+    }
+
+    #[test]
+    fn finding_by_kind_ignores_items_with_no_description() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("kinds.db");
+        let conn = open(Some(&path)).unwrap();
+
+        insert_item(&conn, "garage", None, None, Kind::Room).unwrap();
+        insert_item(&conn, "attic", Some("dusty"), None, Kind::Room).unwrap();
+        insert_item(&conn, "hammer", None, None, Kind::Thing).unwrap();
+
+        // A null description must not drop a row from an unfiltered kind search.
+        let rooms = find_items_by_kind(&conn, Kind::Room, None).unwrap();
+        assert_eq!(rooms.len(), 2);
+    }
+
     #[test]
     fn a_new_database_starts_at_the_current_version() {
         let dir = TempDir::new().unwrap();
@@ -604,7 +674,12 @@ mod tests {
         assert!(has_column(&conn, "items", "place_id").unwrap());
         assert_eq!(
             index_names(&conn),
-            ["idx_items_name", "idx_items_name_place", "idx_items_place"]
+            [
+                "idx_items_kind",
+                "idx_items_name",
+                "idx_items_name_place",
+                "idx_items_place"
+            ]
         );
     }
 }

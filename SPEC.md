@@ -13,6 +13,22 @@ Everything in invy is an **item**. An item has:
 ### Places
 A place is just an item that contains other items. There's no distinction between "item" and "place" - any item can hold other items.
 
+### Kinds
+
+Every item has a kind. The set is fixed, so a typo is a parse error rather than
+a fourth kind. The first three describe a place. `thing` is the default.
+
+| Kind | Glyph | Covers |
+|------|-------|--------|
+| `room` | `⌂` | A room, a loft, a shed, a garden |
+| `furniture` | `▤` | A cupboard, a dresser, a shelf, a workbench |
+| `box` | `▣` | A box, a bag, a case, a toolbox |
+| `thing` | none | Anything you put in a place |
+
+A kind is descriptive, not structural. It does not restrict what can go where,
+and nothing else in `invy` reads it. A place auto-created on the way to an item
+starts as a `thing`, because `invy` cannot know what sort of place it is.
+
 ### Hierarchy
 Items form a tree structure:
 ```
@@ -65,6 +81,7 @@ Add a new item to the inventory.
 |------|-------|-------------|
 | `--desc <text>` | `-d` | Item description |
 | `--in <place>` | `-i` | Place to put the item in |
+| `--kind <kind>` | `-k` | What sort of thing this is. Default: `thing` |
 
 #### Behavior
 1. If `--in` is specified and place doesn't exist, **auto-create it**
@@ -83,14 +100,15 @@ Added: hammer
   "id": 5,
   "name": "hammer",
   "description": "claw hammer",
-  "path": ["garage", "toolbox", "hammer"]
+  "path": ["garage", "toolbox", "hammer"],
+  "kind": "thing"
 }
 ```
 
 #### Output (CSV)
 ```
-id,name,description,place
-5,hammer,claw hammer,toolbox
+id,name,description,kind,place
+5,hammer,claw hammer,thing,toolbox
 ```
 
 #### Exit Codes
@@ -112,23 +130,35 @@ invy add "screwdriver" --in toolbox
 
 # Add with full path
 invy add "wrench" --in "garage/toolbox"
+
+# Add a place and say what sort it is
+invy add "bedroom" --kind room
+invy add "dresser" --in bedroom --kind furniture
 ```
 
 ---
 
-### `invy find <query>`
+### `invy find [query]`
 
 Search for items by name or description.
 
 #### Arguments
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `query` | Yes | Search term (substring match) |
+| `query` | No | Search term (substring match). Required unless `--kind` is given |
+
+#### Flags
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--kind <kind>` | `-k` | Only show items of this kind |
 
 #### Behavior
 1. Searches both `name` and `description` fields
 2. Case-insensitive substring matching
 3. Returns all matches with their full paths
+4. `--kind` alone returns every item of that kind
+5. A query and `--kind` together must both match
+6. Neither a query nor `--kind` is an error
 
 #### Output (human)
 
@@ -151,21 +181,23 @@ workshop/hammer
     "id": 5,
     "name": "hammer",
     "description": "claw hammer",
-    "path": ["garage", "toolbox", "hammer"]
+    "path": ["garage", "toolbox", "hammer"],
+    "kind": "thing"
   }
 ]
 ```
 
 #### Output (CSV)
 ```
-id,name,description,path
-5,hammer,claw hammer,garage/toolbox/hammer
+id,name,description,kind,path
+5,hammer,claw hammer,thing,garage/toolbox/hammer
 ```
 
 #### Exit Codes
 | Code | Condition |
 |------|-----------|
 | 0 | Success (including no results) |
+| 1 | Neither a query nor `--kind` was given |
 
 #### Examples
 ```bash
@@ -177,6 +209,12 @@ invy find "phillips"
 
 # Pipe to grep
 invy find screw --json | jq '.[] | select(.path[0] == "garage")'
+
+# Every room
+invy find --kind room
+
+# Rooms matching "bed"
+invy find bed --kind room
 ```
 
 ---
@@ -202,10 +240,22 @@ List items, optionally within a specific place.
 
 #### Output (human)
 ```
-NAME          DESCRIPTION      ITEMS
-toolbox       red metal box    3
-workbench     -                0
-hammer        claw hammer      -
+NAME          KIND       DESCRIPTION      ITEMS
+toolbox       box        red metal box    3
+workbench     furniture  -                0
+hammer        thing      claw hammer      -
+```
+
+With `--recursive`, each place carries its kind glyph:
+```
+⌂ home [2]
+├── ⌂ bedroom [1]
+│   └── ▤ dresser [1]
+│       └── ▣ sock drawer [1]
+│           └── socks
+└── ⌂ garage [1]
+    └── ▣ toolbox [1]
+        └── hammer (16oz claw)
 ```
 
 #### Output (JSON)
@@ -215,15 +265,16 @@ hammer        claw hammer      -
     "id": 2,
     "name": "toolbox",
     "description": "red metal box",
-    "child_count": 3
+    "child_count": 3,
+    "kind": "box"
   }
 ]
 ```
 
 #### Output (CSV)
 ```
-id,name,description,child_count
-2,toolbox,red metal box,3
+id,name,description,kind,child_count
+2,toolbox,red metal box,box,3
 ```
 
 #### Exit Codes
@@ -271,6 +322,7 @@ Show detailed information about a specific item.
 Name:        hammer
 Description: claw hammer
 Place:       toolbox → garage
+Kind:        thing
 Created:     2024-01-15 10:30:00
 Updated:     2024-01-15 10:30:00
 ```
@@ -281,6 +333,7 @@ Name:        toolbox
 Description: red metal box
 Place:       garage
 Contains:    3 items
+Kind:        box
 Created:     2024-01-15 10:30:00
 Updated:     2024-01-15 10:30:00
 ```
@@ -293,6 +346,7 @@ Updated:     2024-01-15 10:30:00
   "description": "claw hammer",
   "path": ["garage", "toolbox", "hammer"],
   "child_count": 0,
+  "kind": "thing",
   "created_at": "2024-01-15T10:30:00Z",
   "updated_at": "2024-01-15T10:30:00Z"
 }
@@ -428,9 +482,10 @@ Edit an existing item's name or description.
 |------|-------|-------------|
 | `--name <text>` | `-n` | New name |
 | `--desc <text>` | `-d` | New description |
+| `--kind <kind>` | `-k` | New kind |
 
 #### Behavior
-1. At least one of `--name` or `--desc` must be provided
+1. At least one of `--name`, `--desc` or `--kind` must be provided
 2. New name must be unique within its place
 3. Use `--desc ""` to clear description
 
@@ -447,6 +502,7 @@ Updated: hammer → ball-peen hammer
 | 1 | Item not found |
 | 1 | Name conflict |
 | 1 | No changes specified |
+| 1 | Unknown kind |
 
 #### Examples
 ```bash
@@ -461,6 +517,9 @@ invy edit hammer --name "ball-peen" --desc "ball peen hammer"
 
 # Clear description
 invy edit hammer --desc ""
+
+# Reclassify a place
+invy edit garage --kind room
 ```
 
 ---
@@ -499,6 +558,7 @@ carries a `·` marker.
 | `r` | Rename the selection |
 | `d` | Edit the description. An empty value clears it |
 | `m` | Move the selection to another place |
+| `t` `T` | Next and previous kind. `k` is already "move up" |
 | `x` `Del` | Remove the selection, after a confirmation |
 | `R` | Reload from the database |
 | `?` | Show the key list. Any key closes it |
@@ -541,7 +601,8 @@ All errors are written to stderr.
 | Duplicate name | `Error: item 'NAME' already exists in PLACE` |
 | Circular move | `Error: cannot move 'NAME' into itself or its descendants` |
 | Ambiguous name | `Error: 'NAME' is ambiguous. Use full path: PATH1, PATH2` |
-| No changes | `Error: no changes specified. Use --name or --desc` |
+| No changes | `Error: no changes specified. Use --name, --desc or --kind` |
+| Empty find | `Error: give a search term, a --kind, or both` |
 
 ---
 
@@ -556,11 +617,13 @@ CREATE TABLE items (
     name TEXT NOT NULL,
     description TEXT,
     place_id INTEGER REFERENCES items(id) ON DELETE SET NULL,
+    kind TEXT NOT NULL DEFAULT 'thing',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE INDEX idx_items_name ON items(name);
+CREATE INDEX idx_items_kind ON items(kind);
 CREATE INDEX idx_items_place ON items(place_id);
 CREATE UNIQUE INDEX idx_items_name_place ON items(name, COALESCE(place_id, 0));
 ```
@@ -576,3 +639,4 @@ on open, so any older file upgrades in place the first time a new build reads it
 |---------|--------|
 | 1 | The original schema. The parent column was named `container_id` |
 | 2 | `container_id` renamed to `place_id`. Indexes renamed to match |
+| 3 | `kind` added, defaulting to `thing` for every existing row |

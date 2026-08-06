@@ -43,6 +43,12 @@ src/
 
 Single `items` table with self-referential `place_id` foreign key. ON DELETE SET NULL orphans children when parent is deleted. Unique constraint on (name, place_id) prevents duplicate names within same place.
 
+Each item also has a `kind`: `room`, `furniture`, `box` or `thing` (the default). The set is a fixed enum in `model.rs`, not user-extensible. It is descriptive only — nothing restricts what can go where.
+
+### Migrations
+
+`PRAGMA user_version` tracks the schema version, and `db::migrate` upgrades a file on open. To add a step: bump `SCHEMA_VERSION`, add an `if version < N` block, and add a test in `db.rs` that builds a fixture at version N-1. Never edit an earlier block — existing files have already run it.
+
 ## Testing
 
 - Integration tests in `tests/` directory using `assert_cmd` and `predicates`

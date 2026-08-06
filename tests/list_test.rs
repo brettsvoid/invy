@@ -69,7 +69,9 @@ fn list_with_csv_output() {
     // List with CSV
     env.run(&["list", "--csv"])
         .success()
-        .stdout(predicate::str::contains("id,name,description,child_count"));
+        .stdout(predicate::str::contains(
+            "id,name,description,kind,child_count",
+        ));
 }
 
 /// Test: list empty place

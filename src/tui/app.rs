@@ -8,7 +8,7 @@ use std::path::Path;
 
 use super::input::TextInput;
 use crate::db;
-use crate::model::Item;
+use crate::model::{Item, Kind};
 
 /// A single visible row of the tree.
 pub struct Node {
@@ -17,6 +17,7 @@ pub struct Node {
     pub description: Option<String>,
     pub depth: usize,
     pub child_count: usize,
+    pub kind: Kind,
     pub expanded: bool,
     /// One flag per ancestor level: true when that ancestor has later siblings.
     pub ancestors: Vec<bool>,
@@ -232,6 +233,7 @@ impl App {
                     id: item.id,
                     name: item.name.clone(),
                     description: item.description.clone(),
+                    kind: item.kind,
                     depth: 0,
                     child_count: map.get(&Some(item.id)).map_or(0, |c| c.len()),
                     expanded: false,
@@ -343,6 +345,8 @@ impl App {
     // -- actions ---------------------------------------------------------
 
     fn add_item(&mut self, place_id: Option<i64>, name: &str) -> Result<String> {
+        // New items start as things. `k` reclassifies them.
+        let kind = Kind::Thing;
         let name = name.trim();
         if name.is_empty() {
             return Err(anyhow!("name cannot be empty"));
@@ -354,7 +358,7 @@ impl App {
             return Err(anyhow!("'{name}' already exists here"));
         }
 
-        let item = db::insert_item(&self.conn, name, None, place_id)?;
+        let item = db::insert_item(&self.conn, name, None, place_id, kind)?;
         if let Some(id) = place_id {
             self.expanded.insert(id);
         }
@@ -450,6 +454,23 @@ impl App {
             destination.to_string()
         };
         Ok(format!("Moved '{name}' to {target}"))
+    }
+
+    /// Step the selection to the next or previous kind, and save it.
+    fn cycle_kind(&mut self, forwards: bool) {
+        let Some(node) = self.selected_node() else {
+            return;
+        };
+        let (id, name) = (node.id, node.name.clone());
+        let kind = if forwards {
+            node.kind.next()
+        } else {
+            node.kind.previous()
+        };
+
+        let result =
+            db::update_item_kind(&self.conn, id, kind).map(|()| format!("Set '{name}' to {kind}"));
+        self.apply(result);
     }
 
     fn delete_item(&mut self, id: i64) -> Result<String> {
@@ -585,6 +606,10 @@ impl App {
                     });
                 }
             }
+
+            // 'k' is already "move up", so kind cycles on 't' for type.
+            KeyCode::Char('t') => self.cycle_kind(true),
+            KeyCode::Char('T') => self.cycle_kind(false),
 
             KeyCode::Char('R') => {
                 let result = self.reload();
@@ -744,6 +769,7 @@ fn push_level(
             id: item.id,
             name: item.name.clone(),
             description: item.description.clone(),
+            kind: item.kind,
             depth,
             child_count,
             expanded: is_expanded,
@@ -773,11 +799,19 @@ mod tests {
         let path = dir.path().join("test.db");
         let mut app = App::new(Some(&path)).expect("open app");
 
-        let garage = db::insert_item(&app.conn, "garage", None, None).unwrap();
-        let toolbox = db::insert_item(&app.conn, "toolbox", None, Some(garage.id)).unwrap();
-        db::insert_item(&app.conn, "hammer", Some("16oz claw"), Some(toolbox.id)).unwrap();
-        db::insert_item(&app.conn, "bike", None, Some(garage.id)).unwrap();
-        db::insert_item(&app.conn, "attic", None, None).unwrap();
+        let garage = db::insert_item(&app.conn, "garage", None, None, Kind::Room).unwrap();
+        let toolbox =
+            db::insert_item(&app.conn, "toolbox", None, Some(garage.id), Kind::Box).unwrap();
+        db::insert_item(
+            &app.conn,
+            "hammer",
+            Some("16oz claw"),
+            Some(toolbox.id),
+            Kind::Thing,
+        )
+        .unwrap();
+        db::insert_item(&app.conn, "bike", None, Some(garage.id), Kind::Thing).unwrap();
+        db::insert_item(&app.conn, "attic", None, None, Kind::Room).unwrap();
 
         app.reload().unwrap();
         app.expand_all();
@@ -976,6 +1010,42 @@ mod tests {
         press(&mut app, KeyCode::Char('y'));
 
         assert_eq!(app.path_of(id_of(&app, "hammer")), ["hammer"]);
+    }
+
+    #[test]
+    fn t_cycles_the_kind_forwards_and_saves_it() {
+        let (mut app, _dir) = app();
+        app.selected = app.nodes.iter().position(|n| n.name == "bike").unwrap();
+        assert_eq!(app.selected_node().unwrap().kind, Kind::Thing);
+
+        press(&mut app, KeyCode::Char('t'));
+        assert_eq!(app.selected_node().unwrap().kind, Kind::Room);
+
+        // The change reached the database, not just the node.
+        let id = id_of(&app, "bike");
+        assert_eq!(
+            db::get_item_by_id(&app.conn, id).unwrap().unwrap().kind,
+            Kind::Room
+        );
+    }
+
+    #[test]
+    fn shift_t_cycles_the_kind_backwards() {
+        let (mut app, _dir) = app();
+        app.selected = app.nodes.iter().position(|n| n.name == "bike").unwrap();
+
+        press(&mut app, KeyCode::Char('T'));
+        assert_eq!(app.selected_node().unwrap().kind, Kind::Box);
+    }
+
+    #[test]
+    fn cycling_the_kind_keeps_the_selection() {
+        let (mut app, _dir) = app();
+        app.selected = app.nodes.iter().position(|n| n.name == "hammer").unwrap();
+
+        press(&mut app, KeyCode::Char('t'));
+
+        assert_eq!(app.selected_node().unwrap().name, "hammer");
     }
 
     #[test]

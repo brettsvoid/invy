@@ -2,6 +2,7 @@
 //!
 //! See SPEC.md for full behavioral specification.
 
+use crate::model::Kind;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -44,6 +45,10 @@ pub enum Commands {
         /// Place to put the item in (auto-creates if needed)
         #[arg(short = 'i', long = "in")]
         place: Option<String>,
+
+        /// What sort of thing this is
+        #[arg(short, long, value_enum, default_value_t = Kind::Thing)]
+        kind: Kind,
     },
 
     /// Search for items by name or description
@@ -51,7 +56,13 @@ pub enum Commands {
     /// See SPEC.md#invy-find-query
     Find {
         /// Search term (substring match, case-insensitive)
-        query: String,
+        ///
+        /// Optional when --kind is given.
+        query: Option<String>,
+
+        /// Only show items of this kind
+        #[arg(short, long, value_enum)]
+        kind: Option<Kind>,
     },
 
     /// List items, optionally within a specific place
@@ -97,7 +108,7 @@ pub enum Commands {
     #[command(alias = "ui")]
     Tui,
 
-    /// Edit an existing item's name or description
+    /// Edit an existing item's name, description or kind
     ///
     /// See SPEC.md#invy-edit-item
     Edit {
@@ -111,5 +122,9 @@ pub enum Commands {
         /// New description (use "" to clear)
         #[arg(short, long)]
         desc: Option<String>,
+
+        /// New kind
+        #[arg(short, long, value_enum)]
+        kind: Option<Kind>,
     },
 }

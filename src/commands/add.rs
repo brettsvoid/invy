@@ -6,6 +6,7 @@ use anyhow::{anyhow, Result};
 use std::path::Path;
 
 use crate::db;
+use crate::model::Kind;
 use crate::output::{self, Format};
 
 /// Add a new item to the inventory.
@@ -14,6 +15,7 @@ use crate::output::{self, Format};
 /// * `name` - Name of the item
 /// * `desc` - Optional description
 /// * `place` - Optional place to put the item in (auto-creates if needed)
+/// * `kind` - What sort of thing this is
 /// * `json` - Output as JSON
 /// * `csv` - Output as CSV
 /// * `db_path` - Optional custom database path
@@ -21,6 +23,7 @@ pub fn run(
     name: &str,
     desc: Option<&str>,
     place: Option<&str>,
+    kind: Kind,
     json: bool,
     csv: bool,
     db_path: Option<&Path>,
@@ -47,7 +50,7 @@ pub fn run(
     }
 
     // Insert the item
-    let item = db::insert_item(&conn, name, desc, place_id)?;
+    let item = db::insert_item(&conn, name, desc, place_id, kind)?;
 
     // Get full path for display
     let path = db::get_item_path(&conn, item.id)?;

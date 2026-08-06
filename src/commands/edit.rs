@@ -6,6 +6,7 @@ use anyhow::{anyhow, Result};
 use std::path::Path;
 
 use crate::db;
+use crate::model::Kind;
 use crate::output::{self, Format};
 
 /// Edit an existing item's name or description.
@@ -14,6 +15,7 @@ use crate::output::{self, Format};
 /// * `item` - Item to edit
 /// * `name` - Optional new name
 /// * `desc` - Optional new description (use "" to clear)
+/// * `kind` - Optional new kind
 /// * `json` - Output as JSON
 /// * `csv` - Output as CSV
 /// * `db_path` - Optional custom database path
@@ -21,6 +23,7 @@ pub fn run(
     item_ref: &str,
     new_name: Option<&str>,
     new_desc: Option<&str>,
+    new_kind: Option<Kind>,
     json: bool,
     csv: bool,
     db_path: Option<&Path>,
@@ -29,8 +32,10 @@ pub fn run(
     let format = Format::from_flags(json, csv);
 
     // Check that at least one change is specified
-    if new_name.is_none() && new_desc.is_none() {
-        return Err(anyhow!("no changes specified. Use --name or --desc"));
+    if new_name.is_none() && new_desc.is_none() && new_kind.is_none() {
+        return Err(anyhow!(
+            "no changes specified. Use --name, --desc or --kind"
+        ));
     }
 
     // Resolve the item to edit
@@ -39,6 +44,7 @@ pub fn run(
 
     let old_name = item.name.clone();
     let old_desc = item.description.clone();
+    let old_kind = item.kind;
 
     // Update name if specified
     if let Some(name) = new_name {
@@ -60,6 +66,11 @@ pub fn run(
         db::update_item_description(&conn, item.id, desc_value)?;
     }
 
+    // Update kind if specified
+    if let Some(kind) = new_kind {
+        db::update_item_kind(&conn, item.id, kind)?;
+    }
+
     // Get updated item for display
     let updated_item = db::get_item_by_id(&conn, item.id)?
         .ok_or_else(|| anyhow!("Failed to retrieve updated item"))?;
@@ -75,6 +86,11 @@ pub fn run(
         },
         if new_desc.is_some() {
             Some(old_desc.as_deref())
+        } else {
+            None
+        },
+        if new_kind.is_some() {
+            Some(old_kind)
         } else {
             None
         },

@@ -117,5 +117,5 @@ fn find_with_csv_output() {
     // Find with CSV
     env.run(&["find", "hammer", "--csv"])
         .success()
-        .stdout(predicate::str::contains("id,name,description,path"));
+        .stdout(predicate::str::contains("id,name,description,kind,path"));
 }

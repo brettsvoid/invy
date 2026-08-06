@@ -19,16 +19,24 @@ fn main() -> Result<()> {
     let db_path = cli.db.as_deref();
 
     match cli.command {
-        Commands::Add { name, desc, place } => commands::add::run(
+        Commands::Add {
+            name,
+            desc,
+            place,
+            kind,
+        } => commands::add::run(
             &name,
             desc.as_deref(),
             place.as_deref(),
+            kind,
             cli.json,
             cli.csv,
             db_path,
         ),
 
-        Commands::Find { query } => commands::find::run(&query, cli.json, cli.csv, db_path),
+        Commands::Find { query, kind } => {
+            commands::find::run(query.as_deref(), kind, cli.json, cli.csv, db_path)
+        }
 
         Commands::List { place, recursive } => {
             commands::list::run(place.as_deref(), recursive, cli.json, cli.csv, db_path)
@@ -44,10 +52,16 @@ fn main() -> Result<()> {
 
         Commands::Tui => tui::run(db_path),
 
-        Commands::Edit { item, name, desc } => commands::edit::run(
+        Commands::Edit {
+            item,
+            name,
+            desc,
+            kind,
+        } => commands::edit::run(
             &item,
             name.as_deref(),
             desc.as_deref(),
+            kind,
             cli.json,
             cli.csv,
             db_path,

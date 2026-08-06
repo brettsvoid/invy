@@ -12,8 +12,8 @@ cargo install --path .
 
 ```bash
 # Add items
-invy add garage
-invy add toolbox --in garage
+invy add garage --kind room
+invy add toolbox --in garage --kind box
 invy add hammer --in garage/toolbox --desc "claw hammer"
 
 # List items
@@ -23,6 +23,8 @@ invy list --recursive      # show full tree
 
 # Search
 invy find hammer
+invy find --kind room       # every room
+invy find bed --kind room   # rooms matching "bed"
 
 # Show details
 invy show hammer
@@ -33,12 +35,37 @@ invy mv hammer /           # move to root
 
 # Edit items
 invy edit hammer --name "claw hammer" --desc "16oz"
+invy edit garage --kind room
 
 # Remove items
 invy rm hammer
 ```
 
 Output formats: `--json`, `--csv`
+
+## Kinds
+
+Every item has a kind. The first three describe a place, and `thing` is the
+default for everything you put in one.
+
+| Kind | Glyph | Covers |
+| ---- | ----- | ------ |
+| `room` | `⌂` | A room, a loft, a shed, a garden |
+| `furniture` | `▤` | A cupboard, a dresser, a shelf, a workbench |
+| `box` | `▣` | A box, a bag, a case, a toolbox |
+| `thing` | | Anything you put in a place |
+
+```
+$ invy list --recursive
+⌂ home [2]
+├── ⌂ bedroom [1]
+│   └── ▤ dresser [1]
+│       └── ▣ sock drawer [1]
+│           └── socks
+└── ⌂ garage [1]
+    └── ▣ toolbox [1]
+        └── hammer (16oz claw)
+```
 
 ## Interactive mode
 
@@ -60,6 +87,7 @@ place tree, the right pane shows the selected item.
 | `/`               | Search names and descriptions               |
 | `a` `A`           | Add inside the selection, add at root       |
 | `r` `d`           | Rename, edit the description                |
+| `t` `T`           | Next and previous kind                      |
 | `m`               | Move to another place                   |
 | `x` `Del`         | Remove (asks first)                         |
 | `R`               | Reload from the database                    |
