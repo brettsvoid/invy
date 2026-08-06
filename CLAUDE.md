@@ -27,10 +27,17 @@ src/
 ├── model.rs          # Data structures (Item, ItemWithPath, ListItem)
 ├── db.rs             # SQLite operations, migrations, queries
 ├── output.rs         # Output formatting (human/JSON/CSV)
-└── commands/         # Command implementations (add, find, list, show, mv, rm, edit)
+├── commands/         # Command implementations (add, find, list, show, mv, rm, edit)
+└── tui/              # Interactive terminal UI (ratatui)
+    ├── mod.rs        # Terminal setup and event loop
+    ├── app.rs        # State, tree flattening, key handling, actions
+    ├── ui.rs         # Rendering
+    └── input.rs      # Single-line text input for prompts
 ```
 
 **Flow:** CLI parsing (cli.rs) → Command handler (commands/*) → Database (db.rs) → Output formatting (output.rs)
+
+**TUI flow:** `invy tui` → tui::run → App holds one Connection and calls db.rs directly. It does not go through commands/* or output.rs.
 
 ## Database Schema
 
@@ -41,6 +48,7 @@ Single `items` table with self-referential `container_id` foreign key. ON DELETE
 - Integration tests in `tests/` directory using `assert_cmd` and `predicates`
 - `TestEnv` harness in `tests/common/mod.rs` creates isolated temporary databases
 - Each command has dedicated test file (e.g., `tests/add_test.rs`)
+- TUI logic is covered by unit tests in `src/tui/app.rs`. They drive `App::on_key` over a temporary database. Run with `cargo test --bin invy`
 
 ## Key Behaviors
 

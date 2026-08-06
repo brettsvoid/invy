@@ -7,6 +7,7 @@ mod commands;
 mod db;
 mod model;
 mod output;
+mod tui;
 
 use anyhow::Result;
 use clap::Parser;
@@ -45,6 +46,8 @@ fn main() -> Result<()> {
         }
 
         Commands::Rm { item } => commands::rm::run(&item, cli.json, cli.csv, db_path),
+
+        Commands::Tui => tui::run(db_path),
 
         Commands::Edit { item, name, desc } => commands::edit::run(
             &item,

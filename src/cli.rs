@@ -93,6 +93,10 @@ pub enum Commands {
         item: String,
     },
 
+    /// Browse and edit the inventory in an interactive terminal UI
+    #[command(alias = "ui")]
+    Tui,
+
     /// Edit an existing item's name or description
     ///
     /// See SPEC.md#invy-edit-item

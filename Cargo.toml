@@ -17,6 +17,7 @@ csv = "1"
 directories = "5"
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
+ratatui = "0.29"
 
 [dev-dependencies]
 assert_cmd = "2"

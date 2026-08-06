@@ -465,6 +465,72 @@ invy edit hammer --desc ""
 
 ---
 
+### `invy tui`
+
+Browse and edit the inventory in an interactive terminal UI. Alias: `invy ui`.
+
+#### Arguments
+None. `--db` applies. `--json` and `--csv` are ignored.
+
+#### Layout
+| Pane | Content |
+|------|---------|
+| Left | The container tree, one row per item |
+| Right | Name, path, child count, timestamps and description of the selection |
+| Bottom | The last result message, or the key hints |
+
+A container row carries a `▸` or `▾` marker and its child count. A leaf row
+carries a `·` marker.
+
+#### Keys
+| Key | Action |
+|-----|--------|
+| `j` `k` `↓` `↑` | Move up and down |
+| `g` `G` `Home` `End` | First and last row |
+| `Ctrl-d` `Ctrl-u` | Half page down and up |
+| `PageDown` `PageUp` | Full page down and up |
+| `⏎` `Space` | Expand or collapse the selection |
+| `l` `→` | Expand, or step into the first child |
+| `h` `←` | Collapse, or select the container |
+| `E` `C` | Expand all, collapse all |
+| `/` | Search by name and description |
+| `a` | Add an item inside the selection |
+| `A` | Add an item at root |
+| `r` | Rename the selection |
+| `d` | Edit the description. An empty value clears it |
+| `m` | Move the selection to another container |
+| `x` `Del` | Remove the selection, after a confirmation |
+| `R` | Reload from the database |
+| `?` | Show the key list. Any key closes it |
+| `q` | Quit |
+| `Esc` | Clear the search, or quit when no search is active |
+
+#### Behavior
+1. Every change writes through the same functions the CLI commands use, so the
+   name, path and move rules of `add`, `edit`, `mv` and `rm` all apply
+2. Search shows a flat list of matches with the container path of each one
+3. Tree keys do nothing while a search is active
+4. A failed change leaves the database untouched and reports the reason in the
+   bottom bar
+5. Removing a container orphans its children to root, the same as `rm`
+
+#### Exit Codes
+| Code | Condition |
+|------|-----------|
+| 0 | The user quit |
+| 1 | The database could not be opened, or the terminal could not be set up |
+
+#### Examples
+```bash
+# Browse the default database
+invy tui
+
+# Browse another database
+invy tui --db ./garage.db
+```
+
+---
+
 ## Error Messages
 
 All errors are written to stderr.
