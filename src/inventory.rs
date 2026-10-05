@@ -1,7 +1,7 @@
 //! The rules every change to the inventory must follow.
 //!
-//! The CLI commands and the TUI both go through here, so a name or move rule
-//! lives in one place. db.rs stays plain SQL.
+//! The CLI commands and the TUI both go through here, so a name, move or
+//! reference rule lives in one place. db.rs stays plain SQL.
 
 use anyhow::{anyhow, Result};
 use rusqlite::Connection;
@@ -28,15 +28,112 @@ fn clean_description(text: &str) -> Option<&str> {
     Some(text.trim()).filter(|text| !text.is_empty())
 }
 
+/// Read `@14` as the id 14. Anything else is a name or a path.
+fn parse_id(reference: &str) -> Option<i64> {
+    let digits = reference.strip_prefix('@')?;
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+/// Find the item a reference means: an `@id`, a path, or a name anywhere.
+///
+/// When the reference matches duplicates, any one will do, so this returns
+/// the oldest. Matches that are not interchangeable are an error.
+pub fn resolve(conn: &Connection, reference: &str) -> Result<Option<Item>> {
+    Ok(resolve_all(conn, reference)?.into_iter().next())
+}
+
+/// Find every item a reference means: one item, or a set of duplicates.
+pub fn resolve_all(conn: &Connection, reference: &str) -> Result<Vec<Item>> {
+    let reference = reference.trim();
+    if let Some(id) = parse_id(reference) {
+        return Ok(db::get_item_by_id(conn, id)?.into_iter().collect());
+    }
+
+    let matches = if reference.contains('/') {
+        db::find_items_by_path(conn, reference)?
+    } else {
+        db::find_items_by_exact_name(conn, reference)?
+    };
+    ensure_interchangeable(conn, reference, &matches)?;
+    Ok(matches)
+}
+
 /// Turn a destination as typed into a place id, creating the place if needed.
 ///
-/// `/`, `root` and an empty string all mean root.
+/// `/`, `root` and an empty string all mean root. An `@id` must exist: it is
+/// never taken as the name of a new place.
 pub fn resolve_destination(conn: &Connection, reference: &str) -> Result<Option<i64>> {
     let reference = reference.trim();
     if reference.is_empty() || reference == "/" || reference == "root" {
         return Ok(None);
     }
-    Ok(Some(db::resolve_or_create_place(conn, reference)?.id))
+    if let Some(place) = resolve(conn, reference)? {
+        return Ok(Some(place.id));
+    }
+    if parse_id(reference).is_some() {
+        return Err(anyhow!("item '{reference}' not found"));
+    }
+
+    // Nothing matched, so walk the path from root, keeping the places that
+    // exist and creating the rest. A bare name is created at root.
+    let mut place_id = None;
+    for part in reference.split('/').filter(|part| !part.trim().is_empty()) {
+        let existing = db::find_items_named_in(conn, part.trim(), place_id)?;
+        ensure_interchangeable(conn, part.trim(), &existing)?;
+        place_id = Some(match existing.into_iter().next() {
+            Some(place) => place.id,
+            None => db::insert_item(conn, clean_name(part)?, None, place_id, Kind::Thing)?.id,
+        });
+    }
+    Ok(place_id)
+}
+
+/// Whether two items are duplicates, leaving aside whether they hold
+/// anything: same place, name, description and kind.
+///
+/// Names compare as SQLite's NOCASE does, so this agrees with the lookups.
+fn same_apart_from_id(a: &Item, b: &Item) -> bool {
+    a.place_id == b.place_id
+        && a.name.eq_ignore_ascii_case(&b.name)
+        && a.description == b.description
+        && a.kind == b.kind
+}
+
+/// Refuse a reference that matches items that are not duplicates.
+fn ensure_interchangeable(conn: &Connection, reference: &str, matches: &[Item]) -> Result<()> {
+    let [first, ..] = matches else {
+        return Ok(());
+    };
+    if matches.len() == 1 {
+        return Ok(());
+    }
+
+    let mut duplicates = true;
+    for item in matches {
+        if !same_apart_from_id(first, item) || db::count_children(conn, item.id)? > 0 {
+            duplicates = false;
+            break;
+        }
+    }
+    if duplicates {
+        return Ok(());
+    }
+
+    let mut lines = Vec::with_capacity(matches.len());
+    for item in matches {
+        let path = db::get_item_path(conn, item.id)?.join("/");
+        lines.push(match &item.description {
+            Some(desc) => format!("  @{}  {path}  {desc}", item.id),
+            None => format!("  @{}  {path}", item.id),
+        });
+    }
+    Err(anyhow!(
+        "'{reference}' is ambiguous. Use a path or an @id:\n{}",
+        lines.join("\n")
+    ))
 }
 
 /// Add an item to a place, or to root when `place_id` is `None`.
@@ -48,7 +145,6 @@ pub fn add(
     kind: Kind,
 ) -> Result<Item> {
     let name = clean_name(name)?;
-    ensure_name_free(conn, name, place_id)?;
     let description = description.and_then(clean_description);
     db::insert_item(conn, name, description, place_id, kind)
 }
@@ -59,7 +155,6 @@ pub fn rename(conn: &Connection, item: &Item, new_name: &str) -> Result<bool> {
     if new_name == item.name {
         return Ok(false);
     }
-    ensure_name_free(conn, new_name, item.place_id)?;
     db::update_item_name(conn, item.id, new_name)?;
     Ok(true)
 }
@@ -81,21 +176,7 @@ pub fn move_to(conn: &Connection, item: &Item, place_id: Option<i64>) -> Result<
             ));
         }
     }
-    if item.place_id != place_id {
-        ensure_name_free(conn, &item.name, place_id)?;
-    }
     db::move_item(conn, item.id, place_id)
-}
-
-fn ensure_name_free(conn: &Connection, name: &str, place_id: Option<i64>) -> Result<()> {
-    if !db::name_exists_in_place(conn, name, place_id)? {
-        return Ok(());
-    }
-    let place = match place_id {
-        Some(id) => db::get_item_path(conn, id)?.join("/"),
-        None => "(root)".to_string(),
-    };
-    Err(anyhow!("item '{name}' already exists in {place}"))
 }
 
 #[cfg(test)]
@@ -118,5 +199,13 @@ mod tests {
     fn blank_descriptions_clear() {
         assert_eq!(clean_description("  "), None);
         assert_eq!(clean_description(" 16oz "), Some("16oz"));
+    }
+
+    #[test]
+    fn only_an_at_sign_and_digits_is_an_id() {
+        assert_eq!(parse_id("@14"), Some(14));
+        for reference in ["@", "14", "@14a", "@ 14", "@-1", "hammer"] {
+            assert_eq!(parse_id(reference), None, "{reference:?}");
+        }
     }
 }

@@ -6,6 +6,7 @@ use anyhow::{anyhow, Result};
 use std::path::Path;
 
 use crate::db;
+use crate::inventory;
 use crate::output::{self, Format};
 
 /// Show detailed information about a specific item.
@@ -19,7 +20,7 @@ pub fn run(item_ref: &str, json: bool, csv: bool, db_path: Option<&Path>) -> Res
     let conn = db::open(db_path)?;
     let format = Format::from_flags(json, csv);
 
-    let item = match db::resolve_item(&conn, item_ref)? {
+    let item = match inventory::resolve(&conn, item_ref)? {
         Some(item) => item,
         None => {
             let suggestions = db::search_items(&conn, item_ref).unwrap_or_default();

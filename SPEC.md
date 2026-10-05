@@ -6,7 +6,7 @@ A command-line tool for tracking home inventory with hierarchical places.
 
 ### Items
 Everything in invy is an **item**. An item has:
-- **name** (required): unique identifier within its place
+- **name** (required): what the item is called. Names can repeat, even in one place
 - **description** (optional): free-form text
 - **place** (optional): parent item that holds this item
 
@@ -56,12 +56,33 @@ Items form a tree structure:
         └── scissors
 ```
 
-### Paths
-Items can be referenced by name. If ambiguous, use the full path with `/`:
+### Duplicates
+An item is one physical thing, so three identical cables are three items.
+Items are **duplicates** when they sit in the same place with the same name,
+description and kind, and none of them holds anything. Duplicates are
+interchangeable. See `docs/adr/0001-no-item-quantities.md`.
+
+### References
+Every command that takes an item or a place takes a reference:
+
+| Reference | Matches |
+|-----------|---------|
+| `hammer` | Every item called `hammer`, anywhere |
+| `toolbox/hammer` | Every `hammer` directly in a `toolbox` at that path |
+| `@14` | The item with id 14, and nothing else |
+
+Names match without regard to ASCII case. When a reference matches
+duplicates, any one of them will do, and the command acts on the oldest. When
+it matches items that are not duplicates, it is ambiguous, and the error lists
+each match by `@id`:
+
 ```
-toolbox/hammer
-garage/toolbox/hammer
+Error: 'pi power supply' is ambiguous. Use a path or an @id:
+  @14  office/pi power supply  5V 3A
+  @27  office/pi power supply  5V 5A
 ```
+
+An item's id appears in `--json` and `--csv` output.
 
 ---
 
@@ -126,12 +147,12 @@ Add a new item to the inventory.
 
 #### Behavior
 1. If `--in` is specified and place doesn't exist, **auto-create it**
-2. Names must be unique within the same place
-3. Names at root level must be unique among root items
-4. The name and description are trimmed. A name cannot be empty or contain
+2. A name already in the place adds another item, a duplicate if the
+   description and kind match
+3. The name and description are trimmed. A name cannot be empty or contain
    `/`. A blank description is no description
-5. `--in /` and `--in root` add at root
-6. A refused add changes nothing, so an auto-created place is not left behind
+4. `--in /` and `--in root` add at root. An `--in @id` must exist
+5. A refused add changes nothing, so an auto-created place is not left behind
 
 #### Output (human)
 ```
@@ -160,8 +181,8 @@ id,name,description,kind,place
 | Code | Condition |
 |------|-----------|
 | 0 | Success |
-| 1 | Duplicate name in the same place |
 | 1 | Empty name, or a name containing `/` |
+| 1 | `--in` is ambiguous |
 
 #### Examples
 ```bash
@@ -358,7 +379,7 @@ Show detailed information about a specific item.
 #### Behavior
 1. Shows item details including full path
 2. If item is a place, shows child count
-3. Resolves ambiguous names (errors if multiple matches)
+3. Resolves the reference as described in [References](#references)
 4. If no exact name or path matches, performs a substring search across
    names and descriptions and prints `Did you mean:` followed by up to 10
    candidate paths to stderr before exiting with code 1
@@ -403,7 +424,7 @@ Updated:     2024-01-15 10:30:00
 |------|-----------|
 | 0 | Success |
 | 1 | Item not found |
-| 1 | Ambiguous name (multiple matches) |
+| 1 | Ambiguous reference |
 
 #### Examples
 ```bash
@@ -459,7 +480,6 @@ Moved: hammer
 | 0 | Success |
 | 1 | Item not found |
 | 1 | Circular reference (moving into self/descendant) |
-| 1 | Name conflict in destination |
 
 #### Examples
 ```bash
@@ -533,7 +553,7 @@ Edit an existing item's name or description.
 
 #### Behavior
 1. At least one of `--name`, `--desc` or `--kind` must be provided
-2. New name must be unique within its place, and follows the name rules of `add`
+2. New name follows the name rules of `add`. It may match another item in the place
 3. Use `--desc ""` to clear description. A blank description also clears it
 
 #### Output (human)
@@ -547,7 +567,6 @@ Updated: hammer → ball-peen hammer
 |------|-----------|
 | 0 | Success |
 | 1 | Item not found |
-| 1 | Name conflict |
 | 1 | Empty name, or a name containing `/` |
 | 1 | No changes specified |
 | 1 | Unknown kind |
@@ -646,11 +665,10 @@ All errors are written to stderr.
 | Error | Message |
 |-------|---------|
 | Item not found | `Error: item 'NAME' not found` |
-| Duplicate name | `Error: item 'NAME' already exists in PLACE` |
 | Empty name | `Error: name cannot be empty` |
 | Name with `/` | `Error: name cannot contain '/'` |
 | Circular move | `Error: cannot move 'NAME' into itself or its descendants` |
-| Ambiguous name | `Error: 'NAME' is ambiguous. Use full path: PATH1, PATH2` |
+| Ambiguous reference | `Error: 'REF' is ambiguous. Use a path or an @id:` then one `@ID  PATH  DESCRIPTION` line per match |
 | No changes | `Error: no changes specified. Use --name, --desc or --kind` |
 | Empty find | `Error: give a search term, a --kind, or both` |
 
@@ -675,7 +693,6 @@ CREATE TABLE items (
 CREATE INDEX idx_items_name ON items(name);
 CREATE INDEX idx_items_kind ON items(kind);
 CREATE INDEX idx_items_place ON items(place_id);
-CREATE UNIQUE INDEX idx_items_name_place ON items(name, COALESCE(place_id, 0));
 ```
 
 Note: `ON DELETE SET NULL` implements orphaning behavior for `rm` command.
@@ -690,3 +707,4 @@ on open, so any older file upgrades in place the first time a new build reads it
 | 1 | The original schema. The parent column was named `container_id` |
 | 2 | `container_id` renamed to `place_id`. Indexes renamed to match |
 | 3 | `kind` added, defaulting to `thing` for every existing row |
+| 4 | The unique index on name and place dropped, so names can repeat in a place |

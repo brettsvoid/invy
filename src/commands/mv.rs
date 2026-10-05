@@ -28,7 +28,7 @@ pub fn run(
     let format = Format::from_flags(json, csv);
 
     // Resolve the item to move
-    let item = db::resolve_item(&conn, item_ref)?
+    let item = inventory::resolve(&conn, item_ref)?
         .ok_or_else(|| anyhow!("item '{}' not found", item_ref))?;
 
     // Get old path for display

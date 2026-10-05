@@ -6,6 +6,7 @@ use anyhow::{anyhow, Result};
 use std::path::Path;
 
 use crate::db;
+use crate::inventory;
 use crate::output::{self, Format};
 
 /// Remove an item from the inventory.
@@ -22,7 +23,7 @@ pub fn run(item_ref: &str, json: bool, csv: bool, db_path: Option<&Path>) -> Res
     let format = Format::from_flags(json, csv);
 
     // Resolve the item to remove
-    let item = db::resolve_item(&conn, item_ref)?
+    let item = inventory::resolve(&conn, item_ref)?
         .ok_or_else(|| anyhow!("item '{}' not found", item_ref))?;
 
     let item_name = item.name.clone();

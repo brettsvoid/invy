@@ -53,18 +53,34 @@ fn add_item_into_nested_place() {
         .stdout(predicate::str::contains("Added: hammer"));
 }
 
-/// Test: error on duplicate name in same place
+/// Test: the same name in the same place adds a second item
 #[test]
-fn add_duplicate_name_in_same_place_fails() {
+fn add_duplicate_name_in_same_place_adds_another() {
     let env = common::TestEnv::new();
 
-    // Add first item
+    env.add("hammer").success();
     env.add("hammer").success();
 
-    // Try to add duplicate at root - should fail
-    env.add("hammer")
+    env.run(&["list", "--csv"])
+        .success()
+        .stdout(predicate::function(|out: &str| out.lines().count() == 3));
+}
+
+/// Test: an item whose name matches several places goes into none of them
+#[test]
+fn add_into_ambiguous_place_fails() {
+    let env = common::TestEnv::new();
+    // Two empty boxes are duplicates, so the first one takes the phone.
+    env.add_into("box", "wardrobe").success();
+    env.add_into("box", "wardrobe").success();
+    env.add_into("phone", "wardrobe/box").success();
+
+    // Now one box holds something, so the two are told apart by @id.
+    env.add_into("charger", "wardrobe/box")
         .failure()
-        .stderr(predicate::str::contains("already exists"));
+        .stderr(predicate::str::contains("ambiguous"))
+        .stderr(predicate::str::contains("@2"))
+        .stderr(predicate::str::contains("@3"));
 }
 
 /// Test: duplicate names allowed in different places

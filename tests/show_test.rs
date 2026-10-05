@@ -112,8 +112,65 @@ fn show_ambiguous_name_fails() {
     env.add("hammer").success();
     env.add_into("hammer", "toolbox").success();
 
-    // Show without path should fail with helpful message
+    // Show without path should fail and list both candidates
     env.run(&["show", "hammer"])
         .failure()
-        .stderr(predicate::str::contains("ambiguous"));
+        .stderr(predicate::str::contains("ambiguous"))
+        .stderr(predicate::str::contains("@1  hammer"))
+        .stderr(predicate::str::contains("@3  toolbox/hammer"));
+}
+
+/// Test: an @id names one item
+#[test]
+fn show_by_id() {
+    let env = common::TestEnv::new();
+    env.add_with_desc("hammer", "claw").success();
+
+    env.run(&["show", "@1"])
+        .success()
+        .stdout(predicate::str::contains("claw"));
+}
+
+/// Test: an @id that names nothing is not found
+#[test]
+fn show_unknown_id_fails() {
+    let env = common::TestEnv::new();
+
+    env.run(&["show", "@7"])
+        .failure()
+        .stderr(predicate::str::contains("not found"));
+}
+
+/// Test: a name shared by duplicates shows one of them
+#[test]
+fn show_one_of_several_duplicates() {
+    let env = common::TestEnv::new();
+    env.add("hdmi cable").success();
+    env.add("hdmi cable").success();
+
+    env.run(&["show", "hdmi cable"]).success();
+}
+
+/// Test: the same name in the same place with different descriptions is
+/// ambiguous, and the error tells them apart by @id
+#[test]
+fn show_same_path_different_items_is_ambiguous() {
+    let env = common::TestEnv::new();
+    env.add_with_desc("pi power supply", "5V 3A").success();
+    env.add_with_desc("pi power supply", "5V 5A").success();
+
+    env.run(&["show", "pi power supply"])
+        .failure()
+        .stderr(predicate::str::contains("@1  pi power supply  5V 3A"))
+        .stderr(predicate::str::contains("@2  pi power supply  5V 5A"));
+}
+
+/// Test: names match without regard to case
+#[test]
+fn show_ignores_case() {
+    let env = common::TestEnv::new();
+    env.add_into("HDMI cable", "Cable Storage").success();
+
+    env.run(&["show", "hdmi cable"]).success();
+    env.run(&["show", "cable storage/hdmi CABLE"]).success();
 }

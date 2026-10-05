@@ -850,7 +850,7 @@ mod tests {
     }
 
     #[test]
-    fn adding_a_duplicate_name_reports_an_error() {
+    fn adding_a_name_already_there_adds_a_duplicate() {
         let (mut app, _dir) = app();
         app.selected = app.nodes.iter().position(|n| n.name == "garage").unwrap();
 
@@ -858,9 +858,11 @@ mod tests {
         type_text(&mut app, "bike");
         press(&mut app, KeyCode::Enter);
 
-        let (message, kind) = app.status.as_ref().expect("a status");
-        assert_eq!(*kind, StatusKind::Error);
-        assert!(message.contains("already exists"), "{message}");
+        assert_eq!(app.status.as_ref().expect("a status").1, StatusKind::Info);
+        assert_eq!(
+            names(&app).iter().filter(|name| **name == "bike").count(),
+            2
+        );
     }
 
     #[test]
@@ -938,9 +940,9 @@ mod tests {
         press(&mut app, KeyCode::Enter);
 
         assert_eq!(app.status.as_ref().expect("a status").1, StatusKind::Error);
-        assert!(db::get_item_by_path(&app.conn, "garage/shelf")
+        assert!(db::find_items_by_path(&app.conn, "garage/shelf")
             .unwrap()
-            .is_none());
+            .is_empty());
     }
 
     #[test]

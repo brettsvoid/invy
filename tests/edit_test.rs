@@ -99,7 +99,7 @@ fn edit_no_changes_fails() {
 
 /// Test: edit name causes conflict fails
 #[test]
-fn edit_name_conflict_fails() {
+fn edit_to_a_name_already_in_the_place() {
     let env = common::TestEnv::new();
 
     // Setup two items
@@ -108,8 +108,7 @@ fn edit_name_conflict_fails() {
 
     // Try to rename screwdriver to hammer
     env.run(&["edit", "screwdriver", "--name", "hammer"])
-        .failure()
-        .stderr(predicate::str::contains("already exists"));
+        .success();
 }
 
 /// Test: clear description with empty string

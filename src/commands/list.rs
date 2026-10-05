@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::db;
+use crate::inventory;
 use crate::model::{Item, TreeItem};
 use crate::output::{self, Format};
 
@@ -37,7 +38,7 @@ pub fn run(
     } else {
         let items = if let Some(place_ref) = place {
             // List items in specific place
-            let place_item = db::resolve_item(&conn, place_ref)?
+            let place_item = inventory::resolve(&conn, place_ref)?
                 .ok_or_else(|| anyhow!("place '{}' not found", place_ref))?;
             db::list_items_in_place(&conn, place_item.id)?
         } else {

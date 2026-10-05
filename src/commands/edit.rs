@@ -40,7 +40,7 @@ pub fn run(
     }
 
     // Resolve the item to edit
-    let item = db::resolve_item(&conn, item_ref)?
+    let item = inventory::resolve(&conn, item_ref)?
         .ok_or_else(|| anyhow!("item '{}' not found", item_ref))?;
 
     let old_name = item.name.clone();

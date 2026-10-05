@@ -107,3 +107,17 @@ fn remove_nested_place_orphans_to_root() {
     // Garage should still exist
     env.run(&["show", "garage"]).success();
 }
+
+/// Test: removing one of several duplicates leaves the rest
+#[test]
+fn remove_one_duplicate() {
+    let env = common::TestEnv::new();
+    env.add("hdmi cable").success();
+    env.add("hdmi cable").success();
+
+    env.run(&["rm", "hdmi cable"]).success();
+
+    env.run(&["list", "--csv"])
+        .success()
+        .stdout(predicate::function(|out: &str| out.lines().count() == 2));
+}

@@ -39,7 +39,7 @@ pub fn open(path: Option<&Path>) -> Result<Connection> {
 }
 
 /// Schema version this build expects. Bump it for every new migration step.
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 /// Bring the database up to `SCHEMA_VERSION`.
 ///
@@ -106,6 +106,13 @@ fn migrate(conn: &Connection) -> Result<()> {
             .context("Failed to create the kind index")?;
     }
 
+    if version < 4 {
+        // Identical things are separate items, so a place can hold the same
+        // name twice. See docs/adr/0001-no-item-quantities.md.
+        conn.execute_batch("DROP INDEX IF EXISTS idx_items_name_place")
+            .context("Failed to drop the unique name index")?;
+    }
+
     conn.pragma_update(None, "user_version", SCHEMA_VERSION)
         .context("Failed to record the schema version")?;
 
@@ -169,32 +176,11 @@ pub fn get_item_by_id(conn: &Connection, id: i64) -> Result<Option<Item>> {
     Ok(item)
 }
 
-/// Get an item by name. Returns error if ambiguous (multiple matches).
-pub fn get_item_by_name(conn: &Connection, name: &str) -> Result<Option<Item>> {
-    let items = find_items_by_exact_name(conn, name)?;
-
-    match items.len() {
-        0 => Ok(None),
-        1 => Ok(Some(items.into_iter().next().unwrap())),
-        _ => {
-            let paths: Vec<String> = items
-                .iter()
-                .map(|i| get_item_path(conn, i.id).unwrap_or_default().join("/"))
-                .collect();
-            Err(anyhow!(
-                "'{}' is ambiguous. Use full path: {}",
-                name,
-                paths.join(", ")
-            ))
-        }
-    }
-}
-
-/// Find items by exact name (may return multiple if in different places).
+/// Find items by name anywhere in the tree, ignoring case.
 pub fn find_items_by_exact_name(conn: &Connection, name: &str) -> Result<Vec<Item>> {
     let mut stmt = conn.prepare(
         "SELECT id, name, description, place_id, kind, created_at, updated_at
-         FROM items WHERE name = ?1",
+         FROM items WHERE name = ?1 COLLATE NOCASE ORDER BY id",
     )?;
 
     let items = stmt
@@ -204,43 +190,45 @@ pub fn find_items_by_exact_name(conn: &Connection, name: &str) -> Result<Vec<Ite
     Ok(items)
 }
 
-/// Get item by path (e.g., "garage/toolbox/hammer").
-pub fn get_item_by_path(conn: &Connection, path: &str) -> Result<Option<Item>> {
-    let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+/// Find items by name directly inside one place, or at root, ignoring case.
+pub fn find_items_named_in(
+    conn: &Connection,
+    name: &str,
+    place_id: Option<i64>,
+) -> Result<Vec<Item>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, description, place_id, kind, created_at, updated_at
+         FROM items WHERE name = ?1 COLLATE NOCASE AND place_id IS ?2 ORDER BY id",
+    )?;
 
-    if parts.is_empty() {
-        return Ok(None);
-    }
+    let items = stmt
+        .query_map(params![name, place_id], item_from_row)?
+        .collect::<Result<Vec<_>, _>>()?;
 
-    let mut current_place_id: Option<i64> = None;
-    let mut current_item: Option<Item> = None;
-
-    for part in parts {
-        let mut stmt = conn.prepare(
-            "SELECT id, name, description, place_id, kind, created_at, updated_at
-             FROM items WHERE name = ?1 AND place_id IS ?2",
-        )?;
-
-        current_item = stmt
-            .query_row(params![part, current_place_id], item_from_row)
-            .optional()?;
-
-        match &current_item {
-            Some(item) => current_place_id = Some(item.id),
-            None => return Ok(None),
-        }
-    }
-
-    Ok(current_item)
+    Ok(items)
 }
 
-/// Resolve an item reference (either name or path).
-pub fn resolve_item(conn: &Connection, reference: &str) -> Result<Option<Item>> {
-    if reference.contains('/') {
-        get_item_by_path(conn, reference)
-    } else {
-        get_item_by_name(conn, reference)
+/// Find every item at a path (e.g., "garage/toolbox/hammer").
+///
+/// Names repeat, so each step can match more than one place, and the walk
+/// follows all of them.
+pub fn find_items_by_path(conn: &Connection, path: &str) -> Result<Vec<Item>> {
+    let mut parts = path.split('/').map(str::trim).filter(|s| !s.is_empty());
+
+    let Some(first) = parts.next() else {
+        return Ok(Vec::new());
+    };
+    let mut matches = find_items_named_in(conn, first, None)?;
+
+    for part in parts {
+        let mut next = Vec::new();
+        for place in &matches {
+            next.extend(find_items_named_in(conn, part, Some(place.id))?);
+        }
+        matches = next;
     }
+
+    Ok(matches)
 }
 
 /// Get the path to an item as a vector of names (from root to item).
@@ -412,71 +400,6 @@ pub fn is_ancestor(conn: &Connection, potential_ancestor_id: i64, item_id: i64) 
     Ok(false)
 }
 
-/// Check if a name exists in a place.
-pub fn name_exists_in_place(conn: &Connection, name: &str, place_id: Option<i64>) -> Result<bool> {
-    let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM items WHERE name = ?1 AND place_id IS ?2",
-        params![name, place_id],
-        |row| row.get(0),
-    )?;
-    Ok(count > 0)
-}
-
-/// Get or create a place by name (at root level).
-#[allow(dead_code)]
-pub fn get_or_create_place(conn: &Connection, name: &str) -> Result<Item> {
-    // First try to find existing
-    if let Some(item) = get_item_by_path(conn, name)? {
-        return Ok(item);
-    }
-
-    // Create new place
-    insert_item(conn, name, None, None, Kind::Thing)
-}
-
-/// Resolve a place reference, creating if necessary.
-pub fn resolve_or_create_place(conn: &Connection, reference: &str) -> Result<Item> {
-    // First try to resolve existing
-    if let Ok(Some(item)) = resolve_item(conn, reference) {
-        return Ok(item);
-    }
-
-    // If it's a path, we need to create the hierarchy
-    if reference.contains('/') {
-        let parts: Vec<&str> = reference.split('/').filter(|s| !s.is_empty()).collect();
-        let mut current_place_id: Option<i64> = None;
-        let mut current_item: Option<Item> = None;
-
-        for part in parts {
-            // Check if this part exists in current place
-            let existing = if let Some(cid) = current_place_id {
-                let items = list_items_in_place(conn, cid)?;
-                items.into_iter().find(|i| i.name == part)
-            } else {
-                let items = list_root_items(conn)?;
-                items.into_iter().find(|i| i.name == part)
-            };
-
-            current_item = match existing {
-                Some(item) => {
-                    current_place_id = Some(item.id);
-                    Some(item)
-                }
-                None => {
-                    let new_item = insert_item(conn, part, None, current_place_id, Kind::Thing)?;
-                    current_place_id = Some(new_item.id);
-                    Some(new_item)
-                }
-            };
-        }
-
-        current_item.ok_or_else(|| anyhow!("Failed to create place path"))
-    } else {
-        // Simple name - create at root
-        insert_item(conn, reference, None, None, Kind::Thing)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -559,27 +482,8 @@ mod tests {
 
         assert_eq!(
             index_names(&conn),
-            [
-                "idx_items_kind",
-                "idx_items_name",
-                "idx_items_name_place",
-                "idx_items_place"
-            ]
+            ["idx_items_kind", "idx_items_name", "idx_items_place"]
         );
-    }
-
-    #[test]
-    fn the_unique_name_per_place_rule_survives_migration() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("old.db");
-        drop(v1_database(&path));
-
-        let conn = open(Some(&path)).unwrap();
-
-        // 'hammer' already sits in toolbox (id 2).
-        assert!(insert_item(&conn, "hammer", None, Some(2), Kind::Thing).is_err());
-        // The same name in another place is still fine.
-        assert!(insert_item(&conn, "hammer", None, Some(1), Kind::Thing).is_ok());
     }
 
     #[test]
@@ -633,6 +537,51 @@ mod tests {
         assert_eq!(get_item_by_id(&conn, 1).unwrap().unwrap().kind, Kind::Thing);
     }
 
+    /// Write a database in the version 3 schema, with names unique per place.
+    fn v3_database(path: &Path) -> Connection {
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                description TEXT,
+                place_id INTEGER REFERENCES items(id) ON DELETE SET NULL,
+                kind TEXT NOT NULL DEFAULT 'thing',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX idx_items_name ON items(name);
+            CREATE INDEX idx_items_kind ON items(kind);
+            CREATE INDEX idx_items_place ON items(place_id);
+            CREATE UNIQUE INDEX idx_items_name_place
+                ON items(name, COALESCE(place_id, 0));
+
+            INSERT INTO items (id, name, place_id) VALUES (1, 'toolbox', NULL),
+                                                          (2, 'hammer', 1);
+            PRAGMA user_version = 3;
+            "#,
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn a_version_3_database_allows_the_same_name_twice_in_a_place() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("v3.db");
+        drop(v3_database(&path));
+
+        let conn = open(Some(&path)).unwrap();
+
+        assert_eq!(user_version(&conn), SCHEMA_VERSION);
+        assert!(insert_item(&conn, "hammer", None, Some(1), Kind::Thing).is_ok());
+        assert_eq!(
+            index_names(&conn),
+            ["idx_items_kind", "idx_items_name", "idx_items_place"]
+        );
+    }
+
     #[test]
     fn an_unknown_kind_in_the_database_reads_as_a_thing() {
         let dir = TempDir::new().unwrap();
@@ -675,12 +624,7 @@ mod tests {
         assert!(has_column(&conn, "items", "place_id").unwrap());
         assert_eq!(
             index_names(&conn),
-            [
-                "idx_items_kind",
-                "idx_items_name",
-                "idx_items_name_place",
-                "idx_items_place"
-            ]
+            ["idx_items_kind", "idx_items_name", "idx_items_place"]
         );
     }
 }

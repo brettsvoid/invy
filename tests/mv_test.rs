@@ -103,9 +103,9 @@ fn move_nonexistent_item_fails() {
         .stderr(predicate::str::contains("not found"));
 }
 
-/// Test: move causes name conflict fails
+/// Test: moving next to an item with the same name is fine
 #[test]
-fn move_name_conflict_fails() {
+fn move_next_to_the_same_name() {
     let env = common::TestEnv::new();
 
     // Setup: hammer at root and in toolbox
@@ -114,9 +114,7 @@ fn move_name_conflict_fails() {
     env.add_into("hammer", "toolbox").success();
 
     // Try to move toolbox/hammer to root (conflicts with existing hammer)
-    env.run(&["mv", "toolbox/hammer", "/"])
-        .failure()
-        .stderr(predicate::str::contains("already exists"));
+    env.run(&["mv", "toolbox/hammer", "/"]).success();
 }
 
 /// Test: an empty destination means root, as in the TUI
@@ -145,4 +143,31 @@ fn move_refused_does_not_create_the_place() {
         .stderr(predicate::str::contains("itself or its descendants"));
 
     env.run(&["show", "garage/shelf"]).failure();
+}
+
+/// Test: a destination can be an @id
+#[test]
+fn move_to_an_id() {
+    let env = common::TestEnv::new();
+    env.add("toolbox").success();
+    env.add("hammer").success();
+
+    env.run(&["mv", "hammer", "@1"])
+        .success()
+        .stdout(predicate::str::contains("toolbox"));
+}
+
+/// Test: an @id that names nothing is an error, never a new place
+#[test]
+fn move_to_an_unknown_id_fails() {
+    let env = common::TestEnv::new();
+    env.add("hammer").success();
+
+    env.run(&["mv", "hammer", "@99"])
+        .failure()
+        .stderr(predicate::str::contains("not found"));
+
+    env.run(&["list", "--csv"])
+        .success()
+        .stdout(predicate::function(|out: &str| out.lines().count() == 2));
 }
