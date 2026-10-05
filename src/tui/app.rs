@@ -54,7 +54,8 @@ pub enum PromptKind {
     Add(Option<i64>),
     Rename(i64),
     Describe(i64),
-    Move(i64),
+    /// Move these items to the place the user types.
+    Move(Vec<i64>),
 }
 
 pub struct Confirm {
@@ -63,7 +64,7 @@ pub struct Confirm {
 }
 
 pub enum ConfirmAction {
-    Delete(i64),
+    Delete(Vec<i64>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,6 +89,13 @@ pub struct App {
     pub visible_rows: usize,
     /// Item to select once the next reload rebuilds the rows.
     pending_selection: Option<i64>,
+    /// Items marked with Space or visual mode. `x`, `d` and `m` act on them.
+    pub marks: HashSet<i64>,
+    /// Items cut with `x`, waiting for `p` to put them somewhere.
+    pub cut: HashSet<i64>,
+    /// The row visual mode started on. While set, every row between it and
+    /// the cursor counts as marked.
+    pub visual_anchor: Option<usize>,
 }
 
 impl App {
@@ -107,6 +115,9 @@ impl App {
             should_quit: false,
             visible_rows: 10,
             pending_selection: None,
+            marks: HashSet::new(),
+            cut: HashSet::new(),
+            visual_anchor: None,
         };
         app.reload()?;
         // Start with the top level open so the tree is never an empty frame.
@@ -118,6 +129,9 @@ impl App {
     fn reload(&mut self) -> Result<()> {
         let items = db::list_all_items(&self.conn)?;
         self.items = items.into_iter().map(|item| (item.id, item)).collect();
+        // Forget marks and cuts on items that are gone.
+        self.marks.retain(|id| self.items.contains_key(id));
+        self.cut.retain(|id| self.items.contains_key(id));
         self.rebuild_nodes();
         Ok(())
     }
@@ -199,8 +213,73 @@ impl App {
         let map = self.children_map();
         let mut nodes = Vec::new();
         let mut ancestors = Vec::new();
-        push_level(&map, None, 0, &mut ancestors, &self.expanded, &mut nodes);
+        self.push_level(&map, None, 0, &mut ancestors, &mut nodes);
         nodes
+    }
+
+    /// What decides whether two items share a row: being duplicates, and being
+    /// marked and cut alike, so a row is never half marked. `None` for an item
+    /// that holds something, which always has a row of its own.
+    #[allow(clippy::type_complexity)]
+    fn row_key(
+        &self,
+        item: &Item,
+        child_count: usize,
+    ) -> Option<((Option<i64>, String, Option<String>, Kind), bool, bool)> {
+        (child_count == 0).then(|| {
+            (
+                item.duplicate_key(),
+                self.marks.contains(&item.id),
+                self.cut.contains(&item.id),
+            )
+        })
+    }
+
+    /// Append one level of the tree, recursing into expanded places.
+    fn push_level(
+        &self,
+        map: &HashMap<Option<i64>, Vec<&Item>>,
+        parent: Option<i64>,
+        depth: usize,
+        ancestors: &mut Vec<bool>,
+        out: &mut Vec<Node>,
+    ) {
+        let Some(children) = map.get(&parent) else {
+            return;
+        };
+
+        let child_count = |item: &Item| map.get(&Some(item.id)).map_or(0, |c| c.len());
+        let rows = group_duplicates(children.iter().copied(), |item| {
+            self.row_key(item, child_count(item))
+        });
+
+        for (index, group) in rows.iter().enumerate() {
+            let item = group[0];
+            let is_last = index + 1 == rows.len();
+            let child_count = child_count(item);
+            let is_expanded = self.expanded.contains(&item.id) && child_count > 0;
+
+            out.push(Node {
+                id: item.id,
+                ids: group.iter().map(|item| item.id).collect(),
+                name: item.name.clone(),
+                description: item.description.clone(),
+                kind: item.kind,
+                depth,
+                child_count,
+                expanded: is_expanded,
+                ancestors: ancestors.clone(),
+                is_last,
+                parent,
+                place_path: None,
+            });
+
+            if is_expanded {
+                ancestors.push(!is_last);
+                self.push_level(map, Some(item.id), depth + 1, ancestors, out);
+                ancestors.pop();
+            }
+        }
     }
 
     fn build_filtered(&self) -> Vec<Node> {
@@ -210,9 +289,7 @@ impl App {
             self.path_of(item.id).join("/").to_lowercase()
         });
         let child_count = |item: &Item| map.get(&Some(item.id)).map_or(0, |c| c.len());
-        let groups = group_duplicates(matches, |item| {
-            (child_count(item) == 0).then(|| item.duplicate_key())
-        });
+        let groups = group_duplicates(matches, |item| self.row_key(item, child_count(item)));
 
         groups
             .into_iter()
@@ -264,6 +341,9 @@ impl App {
     }
 
     /// Run a database action, reporting either its message or its error.
+    ///
+    /// On success the rows are rebuilt, and the cursor goes to the item the
+    /// action asked for, if any.
     fn apply(&mut self, result: Result<String>) {
         match result {
             Ok(message) => {
@@ -272,8 +352,14 @@ impl App {
                 } else {
                     self.info(message);
                 }
+                if let Some(id) = self.pending_selection.take() {
+                    self.select_id(id);
+                }
             }
-            Err(err) => self.error(format!("{err}")),
+            Err(err) => {
+                self.pending_selection = None;
+                self.error(format!("{err}"));
+            }
         }
     }
 
@@ -384,31 +470,66 @@ impl App {
         })
     }
 
-    fn move_item(&mut self, id: i64, destination: &str) -> Result<String> {
-        let destination = destination.trim();
-        let item = self
-            .items
-            .get(&id)
-            .ok_or_else(|| anyhow!("item no longer exists"))?;
-        let name = item.name.clone();
-
+    /// Move items to the place typed as `destination`.
+    fn move_items(&mut self, ids: &[i64], destination: &str) -> Result<String> {
         // A refused move must not leave an auto-created place behind.
         let tx = self.conn.unchecked_transaction()?;
-        let new_place_id = inventory::resolve_destination(&tx, destination)?;
-        inventory::move_to(&tx, item, new_place_id)?;
+        let place_id = inventory::resolve_destination(&tx, destination)?;
+        self.move_all(&tx, ids, place_id)?;
+        tx.commit()?;
+        Ok(self.moved(ids, place_id))
+    }
+
+    /// Put the cut items into the selected item. A refusal keeps the cut, so
+    /// it can go somewhere else.
+    fn paste(&mut self) -> Result<String> {
+        let place_id = self
+            .selected_id()
+            .ok_or_else(|| anyhow!("select a place to paste into"))?;
+        let mut ids: Vec<i64> = self.cut.iter().copied().collect();
+        ids.sort_unstable();
+
+        let tx = self.conn.unchecked_transaction()?;
+        self.move_all(&tx, &ids, Some(place_id))?;
         tx.commit()?;
 
-        if let Some(place_id) = new_place_id {
+        self.cut.clear();
+        Ok(self.moved(&ids, Some(place_id)))
+    }
+
+    /// Move every item, or none of them: `conn` is a transaction.
+    fn move_all(&self, conn: &Connection, ids: &[i64], place_id: Option<i64>) -> Result<()> {
+        for id in ids {
+            let item = self
+                .items
+                .get(id)
+                .ok_or_else(|| anyhow!("item no longer exists"))?;
+            inventory::move_to(conn, item, place_id)?;
+        }
+        Ok(())
+    }
+
+    /// Tidy up after a move, and say what moved where.
+    fn moved(&mut self, ids: &[i64], place_id: Option<i64>) -> String {
+        if let Some(place_id) = place_id {
             self.expanded.insert(place_id);
         }
-        self.pending_selection = Some(id);
+        self.marks.clear();
+        self.pending_selection = ids.first().copied();
 
-        let target = if new_place_id.is_none() {
-            "/".to_string()
-        } else {
-            destination.to_string()
-        };
-        Ok(format!("Moved '{name}' to {target}"))
+        let target = place_id.map_or_else(|| "/".to_string(), |id| self.path_of(id).join("/"));
+        format!("Moved {} to {target}", self.describe_ids(ids))
+    }
+
+    /// `'hammer'` for one item, `3 items` for several.
+    fn describe_ids(&self, ids: &[i64]) -> String {
+        match ids {
+            [id] => format!(
+                "'{}'",
+                self.items.get(id).map_or("item", |i| i.name.as_str())
+            ),
+            _ => format!("{} items", ids.len()),
+        }
     }
 
     /// Step the selection to the next or previous kind, and save it.
@@ -428,16 +549,108 @@ impl App {
         self.apply(result);
     }
 
-    fn delete_item(&mut self, id: i64) -> Result<String> {
-        let name = self
+    fn delete_items(&mut self, ids: &[i64]) -> Result<String> {
+        let what = self.describe_ids(ids);
+        let tx = self.conn.unchecked_transaction()?;
+        for id in ids {
+            db::delete_item(&tx, *id)?;
+        }
+        tx.commit()?;
+
+        for id in ids {
+            self.expanded.remove(id);
+        }
+        self.marks.clear();
+        Ok(format!("Removed {what}"))
+    }
+
+    // -- marks -----------------------------------------------------------
+
+    /// What `x`, `d` and `m` act on: every marked item, or else one item from
+    /// the cursor row, the oldest of its duplicates.
+    fn targets(&self) -> Vec<i64> {
+        if self.marks.is_empty() {
+            return self.selected_id().into_iter().collect();
+        }
+        let mut ids: Vec<i64> = self.marks.iter().copied().collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    /// Whether the row at `index` is marked, counting a visual range.
+    pub fn is_marked(&self, index: usize) -> bool {
+        if let Some(anchor) = self.visual_anchor {
+            if (anchor.min(self.selected)..=anchor.max(self.selected)).contains(&index) {
+                return true;
+            }
+        }
+        self.nodes
+            .get(index)
+            .is_some_and(|node| node.ids.iter().all(|id| self.marks.contains(id)))
+    }
+
+    /// Whether the row's items are cut, waiting for `p`.
+    pub fn is_cut(&self, node: &Node) -> bool {
+        node.ids.iter().all(|id| self.cut.contains(id))
+    }
+
+    /// Mark the cursor row, every duplicate on it, or unmark it if marked.
+    fn toggle_mark(&mut self) {
+        let Some(node) = self.selected_node() else {
+            return;
+        };
+        let ids = node.ids.clone();
+        if ids.iter().all(|id| self.marks.contains(id)) {
+            for id in &ids {
+                self.marks.remove(id);
+            }
+        } else {
+            self.marks.extend(ids);
+        }
+        self.rebuild_nodes();
+    }
+
+    /// Leave visual mode, keeping its range marked.
+    fn end_visual(&mut self) {
+        let Some(anchor) = self.visual_anchor.take() else {
+            return;
+        };
+        let (low, high) = (anchor.min(self.selected), anchor.max(self.selected));
+        let ids: Vec<i64> = self
+            .nodes
+            .iter()
+            .take(high + 1)
+            .skip(low)
+            .flat_map(|node| node.ids.iter().copied())
+            .collect();
+        self.marks.extend(ids);
+        self.rebuild_nodes();
+    }
+
+    /// Ask before removing the targets.
+    fn confirm_delete(&mut self) {
+        let ids = self.targets();
+        if ids.is_empty() {
+            return;
+        }
+        // Contents that are not removed too go to root.
+        let inside = self
             .items
-            .get(&id)
-            .ok_or_else(|| anyhow!("item no longer exists"))?
-            .name
-            .clone();
-        db::delete_item(&self.conn, id)?;
-        self.expanded.remove(&id);
-        Ok(format!("Removed '{name}'"))
+            .values()
+            .filter(|item| {
+                item.place_id.is_some_and(|p| ids.contains(&p)) && !ids.contains(&item.id)
+            })
+            .count();
+        let what = self.describe_ids(&ids);
+        let message = if inside > 0 {
+            format!("Remove {what}? {inside} item(s) inside move to root.")
+        } else {
+            format!("Remove {what}?")
+        };
+        self.mode = Mode::Confirm(Confirm {
+            message,
+            action: ConfirmAction::Delete(ids),
+        });
     }
 
     // -- key handling ----------------------------------------------------
@@ -461,16 +674,37 @@ impl App {
         let page = (self.visible_rows / 2).max(1) as isize;
         self.status = None;
 
+        // Visual mode lasts while the cursor moves. Any other key keeps the
+        // range marked and leaves it, and then does its usual job.
+        let moves = matches!(
+            key.code,
+            KeyCode::Char('j' | 'k' | 'g' | 'G')
+                | KeyCode::Up
+                | KeyCode::Down
+                | KeyCode::Home
+                | KeyCode::End
+                | KeyCode::PageUp
+                | KeyCode::PageDown
+        ) || (ctrl && matches!(key.code, KeyCode::Char('d' | 'u')));
+        if self.visual_anchor.is_some() && !moves {
+            self.end_visual();
+            if matches!(key.code, KeyCode::Esc | KeyCode::Char('v')) {
+                return;
+            }
+        }
+
         match key.code {
             KeyCode::Char('c') if ctrl => self.should_quit = true,
             KeyCode::Char('d') if ctrl => self.move_selection(page),
             KeyCode::Char('u') if ctrl => self.move_selection(-page),
 
             KeyCode::Char('q') => self.should_quit = true,
+            // Clears one thing per press, and never quits.
             KeyCode::Esc => {
-                if self.filter.is_empty() {
-                    self.should_quit = true;
-                } else {
+                if !self.marks.is_empty() {
+                    self.marks.clear();
+                    self.rebuild_nodes();
+                } else if !self.filter.is_empty() {
                     self.clear_filter();
                 }
             }
@@ -482,11 +716,21 @@ impl App {
             KeyCode::Char('g') | KeyCode::Home => self.selected = 0,
             KeyCode::Char('G') | KeyCode::End => self.selected = self.nodes.len().saturating_sub(1),
 
-            KeyCode::Enter | KeyCode::Char(' ') => self.toggle(),
+            KeyCode::Enter => self.toggle(),
             KeyCode::Char('l') | KeyCode::Right => self.expand(),
             KeyCode::Char('h') | KeyCode::Left => self.collapse(),
             KeyCode::Char('E') => self.expand_all(),
             KeyCode::Char('C') => self.collapse_all(),
+
+            KeyCode::Char(' ') => {
+                self.toggle_mark();
+                self.move_selection(1);
+            }
+            KeyCode::Char('v') => {
+                if !self.nodes.is_empty() {
+                    self.visual_anchor = Some(self.selected);
+                }
+            }
 
             KeyCode::Char('/') => {
                 self.search_input = TextInput::new(self.filter.clone());
@@ -520,7 +764,7 @@ impl App {
                     );
                 }
             }
-            KeyCode::Char('d') => {
+            KeyCode::Char('e') => {
                 if let Some(node) = self.selected_node() {
                     let id = node.id;
                     let name = node.name.clone();
@@ -534,33 +778,45 @@ impl App {
                 }
             }
             KeyCode::Char('m') => {
-                if let Some(node) = self.selected_node() {
-                    let id = node.id;
-                    let name = node.name.clone();
+                let ids = self.targets();
+                if !ids.is_empty() {
+                    let title = format!("Move {}", self.describe_ids(&ids));
                     self.open_prompt(
-                        format!("Move '{name}'"),
+                        title,
                         "destination path ('/' for root)",
                         String::new(),
-                        PromptKind::Move(id),
+                        PromptKind::Move(ids),
                     );
                 }
             }
-            KeyCode::Char('x') | KeyCode::Delete => {
-                if let Some(node) = self.selected_node() {
-                    let message = if node.child_count > 0 {
-                        format!(
-                            "Remove '{}'? Its {} item(s) move to root.",
-                            node.name, node.child_count
-                        )
-                    } else {
-                        format!("Remove '{}'?", node.name)
-                    };
-                    self.mode = Mode::Confirm(Confirm {
-                        message,
-                        action: ConfirmAction::Delete(node.id),
-                    });
+            KeyCode::Char('x') => {
+                let ids = self.targets();
+                if !ids.is_empty() {
+                    let what = self.describe_ids(&ids);
+                    self.cut = ids.into_iter().collect();
+                    self.marks.clear();
+                    self.rebuild_nodes();
+                    self.info(format!(
+                        "Cut {what}. Select a place and press p, or X to cancel"
+                    ));
                 }
             }
+            KeyCode::Char('X') => {
+                if !self.cut.is_empty() {
+                    self.cut.clear();
+                    self.rebuild_nodes();
+                    self.info("Cut cancelled");
+                }
+            }
+            KeyCode::Char('p') => {
+                if self.cut.is_empty() {
+                    self.info("Nothing cut. Press x on an item first");
+                } else {
+                    let result = self.paste();
+                    self.apply(result);
+                }
+            }
+            KeyCode::Char('d') | KeyCode::Delete => self.confirm_delete(),
 
             // 'k' is already "move up", so kind cycles on 't' for type.
             KeyCode::Char('t') => self.cycle_kind(true),
@@ -645,12 +901,9 @@ impl App {
                     PromptKind::Add(place) => self.add_item(place, &value),
                     PromptKind::Rename(id) => self.rename_item(id, &value),
                     PromptKind::Describe(id) => self.describe_item(id, &value),
-                    PromptKind::Move(id) => self.move_item(id, &value),
+                    PromptKind::Move(ids) => self.move_items(&ids, &value),
                 };
                 self.apply(result);
-                if let Some(id) = self.pending_selection.take() {
-                    self.select_id(id);
-                }
             }
             KeyCode::Backspace => {
                 prompt.input.backspace();
@@ -692,59 +945,12 @@ impl App {
         match key.code {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
                 let result = match confirm.action {
-                    ConfirmAction::Delete(id) => self.delete_item(id),
+                    ConfirmAction::Delete(ids) => self.delete_items(&ids),
                 };
                 self.apply(result);
             }
             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => self.info("Cancelled"),
             _ => self.mode = Mode::Confirm(confirm),
-        }
-    }
-}
-
-/// Append one level of the tree, recursing into expanded places.
-fn push_level(
-    map: &HashMap<Option<i64>, Vec<&Item>>,
-    parent: Option<i64>,
-    depth: usize,
-    ancestors: &mut Vec<bool>,
-    expanded: &HashSet<i64>,
-    out: &mut Vec<Node>,
-) {
-    let Some(children) = map.get(&parent) else {
-        return;
-    };
-
-    let child_count = |item: &Item| map.get(&Some(item.id)).map_or(0, |c| c.len());
-    let rows = group_duplicates(children.iter().copied(), |item| {
-        (child_count(item) == 0).then(|| item.duplicate_key())
-    });
-
-    for (index, group) in rows.iter().enumerate() {
-        let item = group[0];
-        let is_last = index + 1 == rows.len();
-        let child_count = child_count(item);
-        let is_expanded = expanded.contains(&item.id) && child_count > 0;
-
-        out.push(Node {
-            id: item.id,
-            ids: group.iter().map(|item| item.id).collect(),
-            name: item.name.clone(),
-            description: item.description.clone(),
-            kind: item.kind,
-            depth,
-            child_count,
-            expanded: is_expanded,
-            ancestors: ancestors.clone(),
-            is_last,
-            parent,
-            place_path: None,
-        });
-
-        if is_expanded {
-            ancestors.push(!is_last);
-            push_level(map, Some(item.id), depth + 1, ancestors, expanded, out);
-            ancestors.pop();
         }
     }
 }
@@ -894,7 +1100,7 @@ mod tests {
         let (mut app, _dir) = app();
         app.selected = app.nodes.iter().position(|n| n.name == "bike").unwrap();
 
-        press(&mut app, KeyCode::Char('d'));
+        press(&mut app, KeyCode::Char('e'));
         type_text(&mut app, "blue, needs a new chain");
         press(&mut app, KeyCode::Enter);
         assert_eq!(
@@ -902,7 +1108,7 @@ mod tests {
             Some("blue, needs a new chain")
         );
 
-        press(&mut app, KeyCode::Char('d'));
+        press(&mut app, KeyCode::Char('e'));
         for _ in 0..40 {
             press(&mut app, KeyCode::Backspace);
         }
@@ -970,11 +1176,11 @@ mod tests {
         let (mut app, _dir) = app();
         app.selected = app.nodes.iter().position(|n| n.name == "bike").unwrap();
 
-        press(&mut app, KeyCode::Char('x'));
+        press(&mut app, KeyCode::Char('d'));
         press(&mut app, KeyCode::Char('n'));
         assert!(names(&app).contains(&"bike"));
 
-        press(&mut app, KeyCode::Char('x'));
+        press(&mut app, KeyCode::Char('d'));
         press(&mut app, KeyCode::Char('y'));
         assert!(!names(&app).contains(&"bike"));
     }
@@ -984,7 +1190,7 @@ mod tests {
         let (mut app, _dir) = app();
         app.selected = app.nodes.iter().position(|n| n.name == "toolbox").unwrap();
 
-        press(&mut app, KeyCode::Char('x'));
+        press(&mut app, KeyCode::Char('d'));
         press(&mut app, KeyCode::Char('y'));
 
         assert_eq!(app.path_of(id_of(&app, "hammer")), ["hammer"]);
@@ -1085,7 +1291,7 @@ mod tests {
         let ids = add_duplicates(&mut app, "hdmi cable", 3);
         app.select_id(ids[0]);
 
-        press(&mut app, KeyCode::Char('d'));
+        press(&mut app, KeyCode::Char('e'));
         type_text(&mut app, "2m");
         press(&mut app, KeyCode::Enter);
 
@@ -1153,7 +1359,7 @@ mod tests {
     }
 
     #[test]
-    fn escape_clears_the_search_before_it_quits() {
+    fn escape_clears_the_search_and_never_quits() {
         let (mut app, _dir) = app();
 
         press(&mut app, KeyCode::Char('/'));
@@ -1162,10 +1368,238 @@ mod tests {
 
         press(&mut app, KeyCode::Esc);
         assert!(app.filter.is_empty());
-        assert!(!app.should_quit);
 
         press(&mut app, KeyCode::Esc);
-        assert!(app.should_quit);
+        assert!(!app.should_quit);
+    }
+
+    fn select(app: &mut App, name: &str) {
+        app.selected = app
+            .nodes
+            .iter()
+            .position(|n| n.name == name)
+            .unwrap_or_else(|| panic!("no row named '{name}'"));
+    }
+
+    fn mark(app: &mut App, name: &str) {
+        select(app, name);
+        press(app, KeyCode::Char(' '));
+    }
+
+    #[test]
+    fn space_marks_the_row_and_moves_down() {
+        let (mut app, _dir) = app();
+
+        mark(&mut app, "bike");
+
+        assert!(app.marks.contains(&id_of(&app, "bike")));
+        assert_eq!(app.selected_node().unwrap().name, "toolbox");
+    }
+
+    #[test]
+    fn space_on_a_marked_row_unmarks_it() {
+        let (mut app, _dir) = app();
+
+        mark(&mut app, "bike");
+        mark(&mut app, "bike");
+
+        assert!(app.marks.is_empty());
+    }
+
+    #[test]
+    fn marking_a_duplicates_row_marks_every_duplicate() {
+        let (mut app, _dir) = app();
+        let ids = add_duplicates(&mut app, "hdmi cable", 3);
+        app.select_id(ids[0]);
+
+        press(&mut app, KeyCode::Char(' '));
+
+        assert_eq!(app.marks, ids.into_iter().collect());
+    }
+
+    #[test]
+    fn visual_mode_marks_the_range_and_keeps_it_on_escape() {
+        let (mut app, _dir) = app();
+        select(&mut app, "attic");
+
+        press(&mut app, KeyCode::Char('v'));
+        press(&mut app, KeyCode::Char('j'));
+        press(&mut app, KeyCode::Char('j'));
+        press(&mut app, KeyCode::Esc);
+
+        assert!(app.visual_anchor.is_none());
+        let expected = ["attic", "garage", "bike"].map(|name| id_of(&app, name));
+        assert_eq!(app.marks, expected.into_iter().collect());
+    }
+
+    #[test]
+    fn marks_survive_a_new_search() {
+        let (mut app, _dir) = app();
+        press(&mut app, KeyCode::Char('/'));
+        type_text(&mut app, "bike");
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Char(' '));
+
+        press(&mut app, KeyCode::Char('/'));
+        for _ in 0..4 {
+            press(&mut app, KeyCode::Backspace);
+        }
+        type_text(&mut app, "hammer");
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Char(' '));
+
+        assert_eq!(app.marks.len(), 2);
+    }
+
+    #[test]
+    fn cutting_and_pasting_moves_the_marked_items_into_the_selected_place() {
+        let (mut app, _dir) = app();
+        mark(&mut app, "bike");
+        mark(&mut app, "hammer");
+
+        press(&mut app, KeyCode::Char('x'));
+        assert!(app.marks.is_empty());
+        select(&mut app, "attic");
+        press(&mut app, KeyCode::Char('p'));
+
+        assert_eq!(app.path_of(id_of(&app, "bike")), ["attic", "bike"]);
+        assert_eq!(app.path_of(id_of(&app, "hammer")), ["attic", "hammer"]);
+        assert!(app.cut.is_empty());
+    }
+
+    #[test]
+    fn cutting_without_marks_takes_one_duplicate() {
+        let (mut app, _dir) = app();
+        let ids = add_duplicates(&mut app, "hdmi cable", 3);
+        app.select_id(ids[0]);
+
+        press(&mut app, KeyCode::Char('x'));
+        select(&mut app, "attic");
+        press(&mut app, KeyCode::Char('p'));
+
+        let attic = id_of(&app, "attic");
+        let moved = ids
+            .iter()
+            .filter(|id| app.item(**id).unwrap().place_id == Some(attic))
+            .count();
+        assert_eq!(moved, 1);
+    }
+
+    #[test]
+    fn a_cut_duplicate_shows_on_its_own_row() {
+        let (mut app, _dir) = app();
+        let ids = add_duplicates(&mut app, "hdmi cable", 3);
+        app.select_id(ids[0]);
+
+        press(&mut app, KeyCode::Char('x'));
+
+        let rows: Vec<&Vec<i64>> = app
+            .nodes
+            .iter()
+            .filter(|n| n.name == "hdmi cable")
+            .map(|n| &n.ids)
+            .collect();
+        assert_eq!(rows, [&vec![ids[0]], &ids[1..].to_vec()]);
+    }
+
+    #[test]
+    fn pasting_with_nothing_cut_says_so() {
+        let (mut app, _dir) = app();
+        select(&mut app, "attic");
+
+        press(&mut app, KeyCode::Char('p'));
+
+        let (message, kind) = app.status.as_ref().expect("a status");
+        assert_eq!(*kind, StatusKind::Info);
+        assert!(message.contains("Nothing"), "{message}");
+    }
+
+    #[test]
+    fn capital_x_cancels_the_cut() {
+        let (mut app, _dir) = app();
+        select(&mut app, "bike");
+
+        press(&mut app, KeyCode::Char('x'));
+        press(&mut app, KeyCode::Char('X'));
+
+        assert!(app.cut.is_empty());
+    }
+
+    #[test]
+    fn pasting_a_place_into_its_own_contents_moves_nothing() {
+        let (mut app, _dir) = app();
+        select(&mut app, "garage");
+        press(&mut app, KeyCode::Char('x'));
+
+        select(&mut app, "toolbox");
+        press(&mut app, KeyCode::Char('p'));
+
+        assert_eq!(app.status.as_ref().expect("a status").1, StatusKind::Error);
+        assert_eq!(app.path_of(id_of(&app, "garage")), ["garage"]);
+        assert!(!app.cut.is_empty(), "the cut is kept to paste elsewhere");
+    }
+
+    #[test]
+    fn d_removes_every_marked_item_after_confirming() {
+        let (mut app, _dir) = app();
+        mark(&mut app, "bike");
+        mark(&mut app, "attic");
+
+        press(&mut app, KeyCode::Char('d'));
+        let Mode::Confirm(confirm) = &app.mode else {
+            panic!("no confirmation");
+        };
+        assert!(confirm.message.contains("2 items"), "{}", confirm.message);
+        press(&mut app, KeyCode::Char('y'));
+
+        assert!(!names(&app).contains(&"bike"));
+        assert!(!names(&app).contains(&"attic"));
+        assert!(app.marks.is_empty());
+    }
+
+    #[test]
+    fn m_moves_every_marked_item() {
+        let (mut app, _dir) = app();
+        mark(&mut app, "bike");
+        mark(&mut app, "hammer");
+
+        press(&mut app, KeyCode::Char('m'));
+        type_text(&mut app, "attic");
+        press(&mut app, KeyCode::Enter);
+
+        assert_eq!(app.path_of(id_of(&app, "bike")), ["attic", "bike"]);
+        assert_eq!(app.path_of(id_of(&app, "hammer")), ["attic", "hammer"]);
+    }
+
+    #[test]
+    fn escape_leaves_visual_mode_then_clears_marks_then_the_search() {
+        let (mut app, _dir) = app();
+        press(&mut app, KeyCode::Char('/'));
+        type_text(&mut app, "garage");
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Char('v'));
+
+        press(&mut app, KeyCode::Esc);
+        assert!(app.visual_anchor.is_none());
+        assert!(!app.marks.is_empty());
+
+        press(&mut app, KeyCode::Esc);
+        assert!(app.marks.is_empty());
+        assert!(!app.filter.is_empty());
+
+        press(&mut app, KeyCode::Esc);
+        assert!(app.filter.is_empty());
+        assert!(!app.should_quit);
+    }
+
+    #[test]
+    fn enter_folds_a_place() {
+        let (mut app, _dir) = app();
+        select(&mut app, "garage");
+
+        press(&mut app, KeyCode::Enter);
+
+        assert_eq!(names(&app), ["attic", "garage"]);
     }
 
     #[test]

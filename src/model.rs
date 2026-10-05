@@ -61,6 +61,15 @@ impl GlyphSet {
         }
     }
 
+    /// Marks a row in the TUI's mark gutter. Block elements, like box-drawing,
+    /// render in any modern font.
+    pub fn mark(self) -> &'static str {
+        match self {
+            GlyphSet::Ascii => "*",
+            _ => "▍",
+        }
+    }
+
     /// Joins a name to how many duplicates it stands for, as in `hdmi cable ×3`.
     pub fn times(self) -> &'static str {
         match self {
@@ -335,7 +344,13 @@ mod tests {
         use unicode_width::UnicodeWidthStr;
 
         for set in [GlyphSet::Unicode, GlyphSet::Nerd, GlyphSet::Ascii] {
-            for marker in [set.expanded(), set.collapsed(), set.leaf(), set.times()] {
+            for marker in [
+                set.expanded(),
+                set.collapsed(),
+                set.leaf(),
+                set.times(),
+                set.mark(),
+            ] {
                 assert_eq!(marker.width(), 1, "{set:?} marker {marker:?}");
             }
 

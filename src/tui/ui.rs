@@ -11,6 +11,7 @@ use crate::model::glyph_set;
 
 const ACCENT: Color = Color::Cyan;
 const MUTED: Color = Color::DarkGray;
+const MARKED: Color = Color::Magenta;
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let [main, status] =
@@ -48,7 +49,8 @@ fn draw_tree(frame: &mut Frame, app: &App, area: Rect) {
     let rows: Vec<ListItem> = app
         .nodes
         .iter()
-        .map(|node| ListItem::new(row(node)))
+        .enumerate()
+        .map(|(index, node)| ListItem::new(row(node, app.is_marked(index), app.is_cut(node))))
         .collect();
 
     let block = Block::bordered()
@@ -74,9 +76,16 @@ fn draw_tree(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_stateful_widget(list, area, &mut state);
 }
 
-/// One tree row: branch glyphs, an open/closed marker, the name, a child count.
-fn row(node: &super::app::Node) -> Line<'static> {
+/// One tree row: a mark gutter, branch glyphs, an open/closed marker, the
+/// name, a child count. A marked row shows in the gutter, a cut one dimmed.
+fn row(node: &super::app::Node, marked: bool, cut: bool) -> Line<'static> {
     let mut spans = Vec::new();
+
+    spans.push(if marked {
+        Span::styled(glyph_set().mark(), Style::default().fg(MARKED))
+    } else {
+        Span::raw(" ")
+    });
 
     if let Some(place) = &node.place_path {
         spans.push(Span::styled(place.clone(), Style::default().fg(MUTED)));
@@ -145,7 +154,14 @@ fn row(node: &super::app::Node) -> Line<'static> {
         ));
     }
 
-    Line::from(spans)
+    let line = Line::from(spans);
+    if cut {
+        line.style(Style::default().fg(MUTED).add_modifier(Modifier::ITALIC))
+    } else if marked {
+        line.style(Style::default().fg(MARKED))
+    } else {
+        line
+    }
 }
 
 fn draw_details(frame: &mut Frame, app: &App, area: Rect) {
@@ -197,7 +213,7 @@ fn draw_details(frame: &mut Frame, app: &App, area: Rect) {
             lines.push(Line::raw(description.clone()));
         }
         None => lines.push(Line::from(Span::styled(
-            "No description. Press 'd' to add one.",
+            "No description. Press 'e' to add one.",
             Style::default().fg(MUTED),
         ))),
     }
@@ -226,21 +242,45 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    let line = match &app.status {
+    // What is marked or cut stays in view, whatever else the bar says.
+    let mut spans = Vec::new();
+    if app.visual_anchor.is_some() {
+        spans.push(Span::styled(
+            " VISUAL ",
+            Style::default().fg(MARKED).add_modifier(Modifier::BOLD),
+        ));
+    }
+    if !app.marks.is_empty() {
+        spans.push(Span::styled(
+            format!(" {} marked ", app.marks.len()),
+            Style::default().fg(MARKED),
+        ));
+    }
+    if !app.cut.is_empty() {
+        spans.push(Span::styled(
+            format!(" {} cut ", app.cut.len()),
+            Style::default().fg(Color::Yellow),
+        ));
+    }
+
+    match &app.status {
         Some((message, kind)) => {
             let colour = match kind {
                 StatusKind::Info => Color::Green,
                 StatusKind::Error => Color::Red,
             };
-            Line::from(Span::styled(message.clone(), Style::default().fg(colour)))
+            spans.push(Span::styled(
+                format!(" {message}"),
+                Style::default().fg(colour),
+            ));
         }
-        None => Line::from(Span::styled(
-            " j/k move  ⏎ toggle  a add  r rename  d describe  t kind  m move  x remove  / search  ? help  q quit",
+        None => spans.push(Span::styled(
+            " j/k move  ⏎ fold  space mark  v visual  x cut  p paste  d remove  e describe  m move  / search  ? help  q quit",
             Style::default().fg(MUTED),
         )),
-    };
+    }
 
-    frame.render_widget(Paragraph::new(line), area);
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 fn draw_prompt(frame: &mut Frame, prompt: &super::app::Prompt) {
@@ -294,18 +334,22 @@ fn draw_help(frame: &mut Frame) {
         ("j / k / ↓ / ↑", "move up and down"),
         ("g / G", "first and last row"),
         ("Ctrl-d / Ctrl-u", "half page down and up"),
-        ("⏎ / Space", "expand or collapse"),
+        ("⏎", "expand or collapse"),
         ("l / h", "expand, or collapse and go to parent"),
         ("E / C", "expand all, collapse all"),
+        ("Space", "mark or unmark, then move down"),
+        ("v", "visual mode: mark rows as you move"),
         ("/", "search by name or description"),
-        ("Esc", "clear the search, or quit"),
+        ("Esc", "leave visual, clear marks, clear search"),
         ("a", "add an item inside the selection"),
         ("A", "add an item at root"),
         ("r", "rename the selection"),
-        ("d", "edit the description"),
-        ("m", "move to another place"),
+        ("e", "edit the description"),
+        ("x / X", "cut the marked items, or cancel the cut"),
+        ("p", "paste the cut items into the selection"),
+        ("m", "move the marked items to a typed place"),
+        ("d / Del", "remove the marked items"),
         ("t / T", "next and previous kind"),
-        ("x / Del", "remove the selection"),
         ("R", "reload from the database"),
         ("? ", "this help"),
         ("q", "quit"),

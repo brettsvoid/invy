@@ -719,22 +719,31 @@ many duplicates share the place.
 | `g` `G` `Home` `End` | First and last row |
 | `Ctrl-d` `Ctrl-u` | Half page down and up |
 | `PageDown` `PageUp` | Full page down and up |
-| `⏎` `Space` | Expand or collapse the selection |
+| `⏎` | Expand or collapse the selection |
 | `l` `→` | Expand, or step into the first child |
 | `h` `←` | Collapse, or select the place |
 | `E` `C` | Expand all, collapse all |
+| `Space` | Mark or unmark the row, every duplicate on it, then move down |
+| `v` | Visual mode: every row between where it started and the cursor is marked |
 | `/` | Search by name and description, as `find` does |
 | `a` | Add an item inside the selection |
 | `A` | Add an item at root |
 | `r` | Rename the selection |
-| `d` | Edit the description. An empty value clears it |
-| `m` | Move the selection to another place |
+| `e` | Edit the description. An empty value clears it |
+| `x` | Cut the targets, to paste somewhere else |
+| `X` | Cancel the cut |
+| `p` | Paste the cut items into the selection |
+| `m` | Move the targets to a place you type |
+| `d` `Del` | Remove the targets, after a confirmation |
 | `t` `T` | Next and previous kind. `k` is already "move up" |
-| `x` `Del` | Remove the selection, after a confirmation |
 | `R` | Reload from the database |
 | `?` | Show the key list. Any key closes it |
-| `q` | Quit |
-| `Esc` | Clear the search, or quit when no search is active |
+| `q` `Ctrl-c` | Quit |
+| `Esc` | Leave visual mode, else clear the marks, else clear the search. Never quits |
+
+The **targets** of `x`, `m` and `d` are the marked items, or, with nothing
+marked, the one item on the cursor row. The keys follow yazi's, which follow
+vim's.
 
 #### Behavior
 1. Every change writes through the same functions the CLI commands use, so the
@@ -746,8 +755,18 @@ many duplicates share the place.
    bottom bar
 5. Removing a place orphans its children to root, the same as `rm`
 6. A key pressed on a duplicates row acts on one of them, the oldest, the same
-   as the CLI without `--all`. A change that makes it differ, such as a new
-   description, splits it onto its own row, and the cursor follows it
+   as the CLI without `--all`. Marking the row is how to act on all of them.
+   A change that makes one differ, such as a new description, splits it onto
+   its own row, and the cursor follows it
+7. Marks survive a change of search. A marked or cut item never shares a row
+   with one that is not, so cutting one of three duplicates splits it off
+8. Visual mode lasts while the cursor moves. Any other key keeps the range
+   marked, leaves visual mode, and then does its usual job, so `v` `G` `x`
+   cuts every row from the cursor down
+9. A cut stays until it is pasted or cancelled. A paste that is refused, such
+   as a place into its own contents, moves nothing and keeps the cut
+10. Marks clear after a cut, a move or a removal. The bottom bar shows how
+    many items are marked and cut
 
 #### Exit Codes
 | Code | Condition |
