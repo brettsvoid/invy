@@ -231,7 +231,7 @@ Search for items by name or description.
 #### Arguments
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `query` | No | Search term (substring match). Required unless `--kind` is given |
+| `query` | No | Search in fzf's syntax, described below. Required unless `--kind` is given |
 
 #### Flags
 | Flag | Short | Description |
@@ -239,12 +239,18 @@ Search for items by name or description.
 | `--kind <kind>` | `-k` | Only show items of this kind |
 
 #### Behavior
-1. Searches both `name` and `description` fields
-2. Case-insensitive substring matching
-3. Returns all matches with their full paths
-4. `--kind` alone returns every item of that kind
-5. A query and `--kind` together must both match
-6. Neither a query nor `--kind` is an error
+1. Searches both `name` and `description` fields, never the path
+2. The query uses fzf's syntax. Words separated by spaces must all match, in
+   any order, and each one matches fuzzily, so `rpi psu` finds
+   `raspberry pi power supply`
+3. A word can be marked: `'word` matches exactly, `^word` at the start,
+   `word$` at the end, and `!word` leaves out what it matches
+4. Case is ignored
+5. Results come best match first. Among equal scores, a match on the name
+   alone beats one that needs the description, then results go by path
+6. `--kind` alone returns every item of that kind, by path
+7. A query and `--kind` together must both match
+8. Neither a query nor `--kind` is an error
 
 #### Output (human)
 
@@ -295,6 +301,13 @@ invy find hammer
 
 # Find by description content
 invy find "phillips"
+
+# Words in any order, abbreviated
+invy find "rpi psu"
+
+# Cables, but not USB ones, and exactly "usb-c"
+invy find "cable !usb"
+invy find "'usb-c"
 
 # Pipe to grep
 invy find screw --json | jq '.[] | select(.path[0] == "garage")'
@@ -408,9 +421,9 @@ Show detailed information about a specific item.
 3. Resolves the reference as described in [References](#references)
 4. If the item has duplicates, human output says how many share the place,
    the item included
-4. If no exact name or path matches, performs a substring search across
-   names and descriptions and prints `Did you mean:` followed by up to 10
-   candidate paths to stderr before exiting with code 1
+5. If no exact name or path matches, searches names and descriptions as
+   `find` does and prints `Did you mean:` followed by up to 10 candidate
+   paths, best first, to stderr before exiting with code 1
 
 #### Output (human)
 ```
@@ -708,7 +721,7 @@ carries a `·` marker.
 | `l` `→` | Expand, or step into the first child |
 | `h` `←` | Collapse, or select the place |
 | `E` `C` | Expand all, collapse all |
-| `/` | Search by name and description |
+| `/` | Search by name and description, as `find` does |
 | `a` | Add an item inside the selection |
 | `A` | Add an item at root |
 | `r` | Rename the selection |
@@ -724,7 +737,8 @@ carries a `·` marker.
 #### Behavior
 1. Every change writes through the same functions the CLI commands use, so the
    name, path and move rules of `add`, `edit`, `mv` and `rm` all apply
-2. Search shows a flat list of matches with the place path of each one
+2. Search shows a flat list of matches, best first, with the place path of
+   each one
 3. Tree keys do nothing while a search is active
 4. A failed change leaves the database untouched and reports the reason in the
    bottom bar

@@ -10,6 +10,7 @@ use super::input::TextInput;
 use crate::db;
 use crate::inventory;
 use crate::model::{Item, Kind};
+use crate::search;
 
 /// A single visible row of the tree.
 pub struct Node {
@@ -199,24 +200,10 @@ impl App {
     }
 
     fn build_filtered(&self) -> Vec<Node> {
-        let needle = self.filter.to_lowercase();
         let map = self.children_map();
 
-        let mut matches: Vec<&Item> = self
-            .items
-            .values()
-            .filter(|item| {
-                item.name.to_lowercase().contains(&needle)
-                    || item
-                        .description
-                        .as_deref()
-                        .is_some_and(|desc| desc.to_lowercase().contains(&needle))
-            })
-            .collect();
-
-        matches.sort_by_cached_key(|item| {
-            let path = self.path_of(item.id);
-            path.join("/").to_lowercase()
+        let matches = search::search(self.items.values(), &self.filter, |item| {
+            self.path_of(item.id).join("/").to_lowercase()
         });
 
         matches
@@ -1031,6 +1018,16 @@ mod tests {
         }
         type_text(&mut app, "BIKE");
         assert_eq!(names(&app), ["bike"]);
+    }
+
+    #[test]
+    fn search_matches_words_in_any_order() {
+        let (mut app, _dir) = app();
+
+        press(&mut app, KeyCode::Char('/'));
+        type_text(&mut app, "claw 16");
+
+        assert_eq!(names(&app), ["hammer"]);
     }
 
     #[test]

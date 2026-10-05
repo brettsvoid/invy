@@ -8,6 +8,7 @@ use std::path::Path;
 use crate::db;
 use crate::inventory;
 use crate::output::{self, Format};
+use crate::search;
 
 /// Show detailed information about a specific item.
 ///
@@ -23,10 +24,11 @@ pub fn run(item_ref: &str, json: bool, csv: bool, db_path: Option<&Path>) -> Res
     let item = match inventory::resolve(&conn, item_ref)? {
         Some(item) => item,
         None => {
-            let suggestions = db::search_items(&conn, item_ref).unwrap_or_default();
+            let all = db::list_all_items(&conn).unwrap_or_default();
+            let suggestions = search::search(&all, item_ref, |item| item.id);
             if !suggestions.is_empty() {
                 eprintln!("Did you mean:");
-                for suggestion in suggestions.iter().take(10) {
+                for suggestion in suggestions.into_iter().take(10) {
                     let path = db::get_item_path(&conn, suggestion.id).unwrap_or_default();
                     eprintln!("  {}", path.join("/"));
                 }

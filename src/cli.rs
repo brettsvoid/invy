@@ -65,7 +65,8 @@ pub enum Commands {
     ///
     /// See SPEC.md#invy-find-query
     Find {
-        /// Search term (substring match, case-insensitive)
+        /// Search in fzf's syntax: words match fuzzily in any order. 'word is
+        /// exact, ^word a prefix, word$ a suffix, !word excludes
         ///
         /// Optional when --kind is given.
         query: Option<String>,

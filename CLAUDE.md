@@ -28,6 +28,7 @@ src/
 ├── model.rs          # Data structures (Item, ItemWithPath, ListItem)
 ├── db.rs             # SQLite operations, migrations, queries
 ├── inventory.rs      # Rules every change follows: names, moves, destinations
+├── search.rs         # fzf-syntax search (nucleo-matcher) for find, show and the TUI
 ├── output.rs         # Output formatting (human/JSON/CSV)
 ├── commands/         # Command implementations (add, find, list, show, mv, rm, edit)
 └── tui/              # Interactive terminal UI (ratatui)

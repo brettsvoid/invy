@@ -249,24 +249,6 @@ pub fn get_item_path(conn: &Connection, item_id: i64) -> Result<Vec<String>> {
     Ok(path)
 }
 
-/// Search items by name or description (case-insensitive substring match).
-pub fn search_items(conn: &Connection, query: &str) -> Result<Vec<Item>> {
-    let pattern = format!("%{}%", query);
-
-    let mut stmt = conn.prepare(
-        "SELECT id, name, description, place_id, kind, created_at, updated_at
-         FROM items
-         WHERE name LIKE ?1 COLLATE NOCASE
-            OR description LIKE ?1 COLLATE NOCASE",
-    )?;
-
-    let items = stmt
-        .query_map(params![pattern], item_from_row)?
-        .collect::<Result<Vec<_>, _>>()?;
-
-    Ok(items)
-}
-
 /// List items at root level (no place).
 pub fn list_root_items(conn: &Connection) -> Result<Vec<Item>> {
     let mut stmt = conn.prepare(
@@ -347,24 +329,6 @@ pub fn update_item_kind(conn: &Connection, item_id: i64, kind: Kind) -> Result<(
         params![kind, item_id],
     )?;
     Ok(())
-}
-
-/// Find items of one kind, optionally narrowed by a name or description match.
-pub fn find_items_by_kind(conn: &Connection, kind: Kind, query: Option<&str>) -> Result<Vec<Item>> {
-    let pattern = format!("%{}%", query.unwrap_or(""));
-
-    let mut stmt = conn.prepare(
-        "SELECT id, name, description, place_id, kind, created_at, updated_at
-         FROM items
-         WHERE kind = ?1
-           AND (name LIKE ?2 COLLATE NOCASE OR description LIKE ?2 COLLATE NOCASE)",
-    )?;
-
-    let items = stmt
-        .query_map(params![kind, pattern], item_from_row)?
-        .collect::<Result<Vec<_>, _>>()?;
-
-    Ok(items)
 }
 
 /// Move an item to a new place.
@@ -596,21 +560,6 @@ mod tests {
         .unwrap();
 
         assert_eq!(get_item_by_id(&conn, 1).unwrap().unwrap().kind, Kind::Thing);
-    }
-
-    #[test]
-    fn finding_by_kind_ignores_items_with_no_description() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("kinds.db");
-        let conn = open(Some(&path)).unwrap();
-
-        insert_item(&conn, "garage", None, None, Kind::Room).unwrap();
-        insert_item(&conn, "attic", Some("dusty"), None, Kind::Room).unwrap();
-        insert_item(&conn, "hammer", None, None, Kind::Thing).unwrap();
-
-        // A null description must not drop a row from an unfiltered kind search.
-        let rooms = find_items_by_kind(&conn, Kind::Room, None).unwrap();
-        assert_eq!(rooms.len(), 2);
     }
 
     #[test]

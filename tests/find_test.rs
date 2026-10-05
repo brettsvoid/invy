@@ -151,3 +151,54 @@ fn find_does_not_group_items_in_different_places() {
             out.matches("wardrobe/box/phone").count() == 2
         }));
 }
+
+/// Test: words match in any order
+#[test]
+fn find_matches_words_in_any_order() {
+    let env = common::TestEnv::new();
+    env.add("usb-a to usb-c cable").success();
+
+    env.run(&["find", "cable usb-c"])
+        .success()
+        .stdout(predicate::str::contains("usb-a to usb-c cable"));
+}
+
+/// Test: a word matches fuzzily, so an abbreviation finds the item
+#[test]
+fn find_matches_abbreviations() {
+    let env = common::TestEnv::new();
+    env.add("raspberry pi power supply").success();
+
+    env.run(&["find", "rpi psu"])
+        .success()
+        .stdout(predicate::str::contains("raspberry pi power supply"));
+}
+
+/// Test: `!word` leaves out items that match it
+#[test]
+fn find_excludes_with_a_bang() {
+    let env = common::TestEnv::new();
+    env.add("hdmi cable").success();
+    env.add("usb cable").success();
+
+    env.run(&["find", "cable !usb"])
+        .success()
+        .stdout(predicate::str::contains("hdmi cable"))
+        .stdout(predicate::str::contains("usb cable").not());
+}
+
+/// Test: the best match comes first, not the first by path
+#[test]
+fn find_ranks_the_best_match_first() {
+    let env = common::TestEnv::new();
+    env.add("classic arcade box").success();
+    env.add("hdmi cable").success();
+
+    env.run(&["find", "cab"])
+        .success()
+        .stdout(predicate::function(|out: &str| {
+            let cable = out.find("hdmi cable");
+            let arcade = out.find("classic arcade box");
+            matches!((cable, arcade), (Some(c), Some(a)) if c < a)
+        }));
+}

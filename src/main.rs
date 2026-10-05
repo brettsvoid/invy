@@ -9,6 +9,7 @@ mod db;
 mod inventory;
 mod model;
 mod output;
+mod search;
 mod tui;
 
 use anyhow::Result;
