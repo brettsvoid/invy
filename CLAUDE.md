@@ -74,6 +74,9 @@ Nerd Font codepoints were picked by reading the `post` table of an installed pat
 - `--json`, `--csv` flags for output format
 - `--db <path>` overrides default database location
 - `~/.config/invy/config.toml` (`$XDG_CONFIG_HOME` respected) can set `db`. Precedence: `--db`, then config, then `~/.local/share/invy/invy.db`. Unknown keys are an error
+- Things at root are **unsorted**. It is a way of showing root, not something stored
+- TUI keys follow yazi's, which follow vim's: `Space` marks, `v` visual, `x`/`p` cut and paste, `d` removes, `Esc` never quits
+- `CONTEXT.md` is the glossary. Use its words, and the ones it lists under _Avoid_ nowhere, in docs, output and code
 - See SPEC.md for complete behavioral specification
 
 ## Commit Style
