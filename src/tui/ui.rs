@@ -275,7 +275,7 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
             ));
         }
         None => spans.push(Span::styled(
-            " j/k move  ⏎ fold  space mark  v visual  x cut  p paste  d remove  e describe  m move  / search  ? help  q quit",
+            " j/k move  ⏎ fold  a/i add  +/- count  space mark  v visual  x cut  p paste  d remove  e describe  / search  ? help",
             Style::default().fg(MUTED),
         )),
     }
@@ -284,7 +284,14 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_prompt(frame: &mut Frame, prompt: &super::app::Prompt) {
-    let area = centred(frame.area(), 60, 5);
+    // Wide enough for the title and the hint, which can name a long path.
+    let wanted = prompt
+        .title
+        .chars()
+        .count()
+        .max(prompt.hint.chars().count())
+        + 4;
+    let area = centred(frame.area(), wanted.max(60) as u16, 5);
     let block = Block::bordered()
         .title(format!(" {} ", prompt.title))
         .border_style(Style::default().fg(ACCENT));
@@ -299,7 +306,7 @@ fn draw_prompt(frame: &mut Frame, prompt: &super::app::Prompt) {
     frame.render_widget(Paragraph::new(prompt.input.value()), input_area);
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
-            format!("{}  —  ⏎ confirm, Esc cancel", prompt.hint),
+            prompt.hint.clone(),
             Style::default().fg(MUTED),
         ))),
         hint_area,
@@ -341,8 +348,8 @@ fn draw_help(frame: &mut Frame) {
         ("v", "visual mode: mark rows as you move"),
         ("/", "search by name or description"),
         ("Esc", "leave visual, clear marks, clear search"),
-        ("a", "add an item inside the selection"),
-        ("A", "add an item at root"),
+        ("a / i / A", "add beside the selection, inside it, at root"),
+        ("+ / -", "add or remove a duplicate"),
         ("r", "rename the selection"),
         ("e", "edit the description"),
         ("x / X", "cut the marked items, or cancel the cut"),

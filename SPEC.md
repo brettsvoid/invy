@@ -726,8 +726,11 @@ many duplicates share the place.
 | `Space` | Mark or unmark the row, every duplicate on it, then move down |
 | `v` | Visual mode: every row between where it started and the cursor is marked |
 | `/` | Search by name and description, as `find` does |
-| `a` | Add an item inside the selection |
+| `a` | Add an item beside the selection, in the same place |
+| `i` | Add an item inside the selection |
 | `A` | Add an item at root |
+| `+` | Add a duplicate of the selection |
+| `-` | Remove one duplicate from the selection. Asks first when it is the last |
 | `r` | Rename the selection |
 | `e` | Edit the description. An empty value clears it |
 | `x` | Cut the targets, to paste somewhere else |
@@ -767,6 +770,12 @@ vim's.
    as a place into its own contents, moves nothing and keeps the cut
 10. Marks clear after a cut, a move or a removal. The bottom bar shows how
     many items are marked and cut
+11. The add prompt stays open after each name, adding to the same place, and
+    its title counts what it has added. An empty line or `Esc` closes it, with
+    the cursor on the last item added. A refused name stays in the prompt to
+    fix. A name already in the place adds a duplicate, and the bar says how
+    many there now are
+12. `+` and `-` work on items that hold nothing, and ignore the marks
 
 #### Exit Codes
 | Code | Condition |

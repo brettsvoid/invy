@@ -9,7 +9,7 @@ use std::path::Path;
 use super::input::TextInput;
 use crate::db;
 use crate::inventory;
-use crate::model::{group_duplicates, Item, Kind};
+use crate::model::{glyph_set, group_duplicates, Item, Kind};
 use crate::search;
 
 /// A single visible row of the tree.
@@ -50,8 +50,12 @@ pub struct Prompt {
 }
 
 pub enum PromptKind {
-    /// Add an item inside the given place, or at root when `None`.
-    Add(Option<i64>),
+    /// Add items to the given place, or to root when `None`. The prompt stays
+    /// open for the next one, and counts how many it has added.
+    Add {
+        place: Option<i64>,
+        added: usize,
+    },
     Rename(i64),
     Describe(i64),
     /// Move these items to the place the user types.
@@ -440,7 +444,73 @@ impl App {
             self.expanded.insert(id);
         }
         self.pending_selection = Some(item.id);
-        Ok(format!("Added '{}'", item.name))
+        Ok(format!("Added {}", self.counted(&item)?))
+    }
+
+    /// `'hdmi cable'`, or `'hdmi cable' ×3` when it has duplicates.
+    fn counted(&self, item: &Item) -> Result<String> {
+        let count = inventory::duplicate_count(&self.conn, item)?;
+        Ok(if count > 1 {
+            format!("'{}' {}{count}", item.name, glyph_set().times())
+        } else {
+            format!("'{}'", item.name)
+        })
+    }
+
+    /// Add another of the cursor row's item.
+    fn add_duplicate(&mut self) -> Result<String> {
+        let node = self
+            .selected_node()
+            .ok_or_else(|| anyhow!("nothing selected"))?;
+        if node.child_count > 0 {
+            return Err(anyhow!(
+                "only an item that holds nothing can have duplicates"
+            ));
+        }
+        let item = self
+            .items
+            .get(&node.id)
+            .ok_or_else(|| anyhow!("item no longer exists"))?;
+
+        let new = inventory::add(
+            &self.conn,
+            &item.name,
+            item.description.as_deref(),
+            item.place_id,
+            item.kind,
+        )?;
+        self.pending_selection = Some(new.id);
+        Ok(format!("Added another: {}", self.counted(&new)?))
+    }
+
+    /// Remove one of the cursor row's duplicates, the newest. Removing the
+    /// last one asks first, as `d` does.
+    fn remove_duplicate(&mut self) {
+        let Some(node) = self.selected_node() else {
+            return;
+        };
+        if node.child_count > 0 {
+            self.error("only an item that holds nothing can have duplicates");
+            return;
+        }
+        let ids = node.ids.clone();
+        let Some(&newest) = ids.last() else {
+            return;
+        };
+        if ids.len() == 1 {
+            self.mode = Mode::Confirm(Confirm {
+                message: format!("Remove {}?", self.describe_ids(&ids)),
+                action: ConfirmAction::Delete(ids),
+            });
+            return;
+        }
+
+        let name = node.name.clone();
+        let result = db::delete_item(&self.conn, newest).map(|()| {
+            self.pending_selection = Some(ids[0]);
+            format!("Removed one '{name}', {} left", ids.len() - 1)
+        });
+        self.apply(result);
     }
 
     fn rename_item(&mut self, id: i64, new_name: &str) -> Result<String> {
@@ -737,28 +807,24 @@ impl App {
                 self.mode = Mode::Search;
             }
 
+            // Beside the cursor row, inside it, or at root.
             KeyCode::Char('a') => {
-                let place = self.selected_id();
-                let title = match place.map(|id| self.path_of(id).join("/")) {
-                    Some(path) => format!("Add item in {path}"),
-                    None => "Add item at root".to_string(),
-                };
-                self.open_prompt(title, "name", String::new(), PromptKind::Add(place));
+                let place = self.selected_node().and_then(|node| node.parent);
+                self.open_add(place);
             }
-            KeyCode::Char('A') => {
-                self.open_prompt(
-                    "Add item at root".to_string(),
-                    "name",
-                    String::new(),
-                    PromptKind::Add(None),
-                );
+            KeyCode::Char('i') => self.open_add(self.selected_id()),
+            KeyCode::Char('A') => self.open_add(None),
+            KeyCode::Char('+') => {
+                let result = self.add_duplicate();
+                self.apply(result);
             }
+            KeyCode::Char('-') => self.remove_duplicate(),
             KeyCode::Char('r') => {
                 if let Some(node) = self.selected_node() {
                     let (id, name) = (node.id, node.name.clone());
                     self.open_prompt(
                         format!("Rename '{name}'"),
-                        "new name",
+                        "new name  —  ⏎ confirm, Esc cancel",
                         name,
                         PromptKind::Rename(id),
                     );
@@ -771,7 +837,7 @@ impl App {
                     let current = node.description.clone().unwrap_or_default();
                     self.open_prompt(
                         format!("Describe '{name}'"),
-                        "description (empty clears)",
+                        "description, empty clears  —  ⏎ confirm, Esc cancel",
                         current,
                         PromptKind::Describe(id),
                     );
@@ -783,7 +849,7 @@ impl App {
                     let title = format!("Move {}", self.describe_ids(&ids));
                     self.open_prompt(
                         title,
-                        "destination path ('/' for root)",
+                        "destination path, / for root  —  ⏎ confirm, Esc cancel",
                         String::new(),
                         PromptKind::Move(ids),
                     );
@@ -831,6 +897,28 @@ impl App {
             }
             KeyCode::Char('?') => self.show_help = true,
             _ => {}
+        }
+    }
+
+    fn open_add(&mut self, place: Option<i64>) {
+        let title = self.add_title(place, 0);
+        self.open_prompt(
+            title,
+            "name  —  ⏎ add, empty line or Esc to finish",
+            String::new(),
+            PromptKind::Add { place, added: 0 },
+        );
+    }
+
+    fn add_title(&self, place: Option<i64>, added: usize) -> String {
+        let place = match place {
+            Some(id) => format!("Add in {}", self.path_of(id).join("/")),
+            None => "Add at root".to_string(),
+        };
+        if added == 0 {
+            place
+        } else {
+            format!("{place} ({added} added)")
         }
     }
 
@@ -897,8 +985,27 @@ impl App {
             KeyCode::Esc => {}
             KeyCode::Enter => {
                 let value = prompt.input.value().to_string();
+                if let PromptKind::Add { place, added } = prompt.kind {
+                    // An empty line finishes. Otherwise add, and stay open for
+                    // the next name, keeping what was typed if it was refused.
+                    if value.trim().is_empty() {
+                        return;
+                    }
+                    let result = self.add_item(place, &value);
+                    if result.is_ok() {
+                        prompt.input = TextInput::default();
+                        prompt.kind = PromptKind::Add {
+                            place,
+                            added: added + 1,
+                        };
+                        prompt.title = self.add_title(place, added + 1);
+                    }
+                    self.apply(result);
+                    self.mode = Mode::Prompt(prompt);
+                    return;
+                }
                 let result = match prompt.kind {
-                    PromptKind::Add(place) => self.add_item(place, &value),
+                    PromptKind::Add { .. } => unreachable!("handled above"),
                     PromptKind::Rename(id) => self.rename_item(id, &value),
                     PromptKind::Describe(id) => self.describe_item(id, &value),
                     PromptKind::Move(ids) => self.move_items(&ids, &value),
@@ -1049,11 +1156,11 @@ mod tests {
     }
 
     #[test]
-    fn adding_puts_the_item_inside_the_selection_and_selects_it() {
+    fn i_puts_the_item_inside_the_selection_and_selects_it() {
         let (mut app, _dir) = app();
         app.selected = app.nodes.iter().position(|n| n.name == "toolbox").unwrap();
 
-        press(&mut app, KeyCode::Char('a'));
+        press(&mut app, KeyCode::Char('i'));
         type_text(&mut app, "wrench");
         press(&mut app, KeyCode::Enter);
 
@@ -1069,7 +1176,7 @@ mod tests {
         let (mut app, _dir) = app();
         app.selected = app.nodes.iter().position(|n| n.name == "garage").unwrap();
 
-        press(&mut app, KeyCode::Char('a'));
+        press(&mut app, KeyCode::Char('i'));
         type_text(&mut app, "bike");
         press(&mut app, KeyCode::Enter);
 
@@ -1612,5 +1719,119 @@ mod tests {
         press(&mut app, KeyCode::Char('q'));
         assert!(!app.show_help);
         assert!(!app.should_quit);
+    }
+
+    #[test]
+    fn a_adds_beside_the_cursor_row() {
+        let (mut app, _dir) = app();
+        select(&mut app, "bike");
+
+        press(&mut app, KeyCode::Char('a'));
+        type_text(&mut app, "saw");
+        press(&mut app, KeyCode::Enter);
+
+        assert_eq!(app.path_of(id_of(&app, "saw")), ["garage", "saw"]);
+    }
+
+    #[test]
+    fn the_add_prompt_stays_open_until_an_empty_line() {
+        let (mut app, _dir) = app();
+        select(&mut app, "toolbox");
+
+        press(&mut app, KeyCode::Char('i'));
+        type_text(&mut app, "wrench");
+        press(&mut app, KeyCode::Enter);
+        type_text(&mut app, "pliers");
+        press(&mut app, KeyCode::Enter);
+
+        let Mode::Prompt(prompt) = &app.mode else {
+            panic!("the prompt closed");
+        };
+        assert!(prompt.title.contains("2 added"), "{}", prompt.title);
+        assert_eq!(prompt.input.value(), "");
+
+        press(&mut app, KeyCode::Enter);
+        assert!(matches!(app.mode, Mode::Normal));
+        assert_eq!(app.selected_node().unwrap().name, "pliers");
+        assert_eq!(
+            app.path_of(id_of(&app, "wrench")),
+            ["garage", "toolbox", "wrench"]
+        );
+    }
+
+    #[test]
+    fn a_refused_name_keeps_the_prompt_and_what_was_typed() {
+        let (mut app, _dir) = app();
+        select(&mut app, "toolbox");
+
+        press(&mut app, KeyCode::Char('i'));
+        type_text(&mut app, "a/b");
+        press(&mut app, KeyCode::Enter);
+
+        let Mode::Prompt(prompt) = &app.mode else {
+            panic!("the prompt closed");
+        };
+        assert_eq!(prompt.input.value(), "a/b");
+        assert_eq!(app.status.as_ref().expect("a status").1, StatusKind::Error);
+    }
+
+    #[test]
+    fn adding_a_duplicate_says_how_many_there_are() {
+        let (mut app, _dir) = app();
+        select(&mut app, "bike");
+
+        press(&mut app, KeyCode::Char('a'));
+        type_text(&mut app, "bike");
+        press(&mut app, KeyCode::Enter);
+
+        let (message, _) = app.status.as_ref().expect("a status");
+        assert!(message.contains("×2"), "{message}");
+    }
+
+    #[test]
+    fn plus_adds_a_duplicate_of_the_row() {
+        let (mut app, _dir) = app();
+        select(&mut app, "bike");
+
+        press(&mut app, KeyCode::Char('+'));
+
+        let row = app.selected_node().unwrap();
+        assert_eq!(row.name, "bike");
+        assert_eq!(row.ids.len(), 2);
+    }
+
+    #[test]
+    fn plus_on_a_place_is_refused() {
+        let (mut app, _dir) = app();
+        select(&mut app, "toolbox");
+
+        press(&mut app, KeyCode::Char('+'));
+
+        assert_eq!(app.status.as_ref().expect("a status").1, StatusKind::Error);
+        assert_eq!(app.item_count(), 5);
+    }
+
+    #[test]
+    fn minus_removes_one_duplicate_without_asking() {
+        let (mut app, _dir) = app();
+        select(&mut app, "bike");
+        press(&mut app, KeyCode::Char('+'));
+
+        press(&mut app, KeyCode::Char('-'));
+
+        assert!(matches!(app.mode, Mode::Normal));
+        assert_eq!(app.selected_node().unwrap().ids.len(), 1);
+    }
+
+    #[test]
+    fn minus_on_the_last_one_asks_first() {
+        let (mut app, _dir) = app();
+        select(&mut app, "bike");
+
+        press(&mut app, KeyCode::Char('-'));
+        assert!(matches!(app.mode, Mode::Confirm(_)));
+        press(&mut app, KeyCode::Char('y'));
+
+        assert!(!names(&app).contains(&"bike"));
     }
 }
