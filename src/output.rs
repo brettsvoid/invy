@@ -4,11 +4,10 @@
 
 use anyhow::Result;
 use serde::Serialize;
-use std::collections::HashMap;
 use std::hash::Hash;
 use std::io;
 
-use crate::model::{glyph_set, ItemWithPath, Kind, ListItem, TreeItem};
+use crate::model::{glyph_set, group_duplicates, ItemWithPath, Kind, ListItem, TreeItem};
 
 /// Output format selection.
 #[derive(Debug, Clone, Copy)]
@@ -235,30 +234,13 @@ pub fn print_updated(
 
 // Human-readable formatters
 
-/// Fold duplicates together for human output, keeping first-seen order.
-///
-/// `key` gives what two duplicates share, or `None` for an item that holds
-/// something and so is never a duplicate. Each entry comes back with how many
-/// items it stands for.
-fn group_duplicates<T, K: Eq + Hash>(
-    items: &[T],
-    key: impl Fn(&T) -> Option<K>,
-) -> Vec<(&T, usize)> {
-    let mut groups: Vec<(&T, usize)> = Vec::new();
-    let mut index: HashMap<K, usize> = HashMap::new();
-    for item in items {
-        match key(item) {
-            Some(k) => match index.get(&k) {
-                Some(&i) => groups[i].1 += 1,
-                None => {
-                    index.insert(k, groups.len());
-                    groups.push((item, 1));
-                }
-            },
-            None => groups.push((item, 1)),
-        }
-    }
-    groups
+/// Fold duplicates together for human output: each entry with how many items
+/// it stands for.
+fn group_counted<T, K: Eq + Hash>(items: &[T], key: impl Fn(&&T) -> Option<K>) -> Vec<(&T, usize)> {
+    group_duplicates(items, key)
+        .into_iter()
+        .map(|group| (group[0], group.len()))
+        .collect()
 }
 
 /// A name with its duplicate count, as in `hdmi cable ×3`.
@@ -313,7 +295,7 @@ fn print_item_human(item: &ItemWithPath, duplicates: usize) -> Result<()> {
 }
 
 fn print_items_human(items: &[ItemWithPath]) -> Result<()> {
-    let groups = group_duplicates(items, |item| {
+    let groups = group_counted(items, |item| {
         (item.child_count == Some(0)).then(|| {
             (
                 item.place_id,
@@ -336,7 +318,7 @@ fn print_list_items_human(items: &[ListItem]) -> Result<()> {
         return Ok(());
     }
 
-    let rows: Vec<(String, &ListItem)> = group_duplicates(items, |item| {
+    let rows: Vec<(String, &ListItem)> = group_counted(items, |item| {
         (item.child_count == 0).then(|| sibling_key(&item.name, &item.description, item.kind))
     })
     .into_iter()
@@ -488,7 +470,7 @@ impl TreeChars {
 fn print_tree_items_human(items: &[TreeItem]) -> Result<()> {
     /// One level of the tree, with duplicates folded together.
     fn siblings(items: &[TreeItem]) -> Vec<(&TreeItem, usize)> {
-        group_duplicates(items, |item| {
+        group_counted(items, |item| {
             (item.child_count == 0).then(|| sibling_key(&item.name, &item.description, item.kind))
         })
     }

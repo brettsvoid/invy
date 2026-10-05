@@ -106,15 +106,9 @@ pub fn resolve_destination(conn: &Connection, reference: &str) -> Result<Option<
     Ok(place_id)
 }
 
-/// Whether two items are duplicates, leaving aside whether they hold
-/// anything: same place, name, description and kind.
-///
-/// Names compare as SQLite's NOCASE does, so this agrees with the lookups.
+/// Whether two items are duplicates, leaving aside whether they hold anything.
 fn same_apart_from_id(a: &Item, b: &Item) -> bool {
-    a.place_id == b.place_id
-        && a.name.eq_ignore_ascii_case(&b.name)
-        && a.description == b.description
-        && a.kind == b.kind
+    a.duplicate_key() == b.duplicate_key()
 }
 
 /// How many duplicates share the item's place, the item included.

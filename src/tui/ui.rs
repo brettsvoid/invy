@@ -131,6 +131,13 @@ fn row(node: &super::app::Node) -> Line<'static> {
         }
     }
 
+    if node.ids.len() > 1 {
+        spans.push(Span::styled(
+            format!(" {}{}", glyph_set().times(), node.ids.len()),
+            Style::default().fg(ACCENT),
+        ));
+    }
+
     if node.child_count > 0 {
         spans.push(Span::styled(
             format!("  ({})", node.child_count),
@@ -158,6 +165,10 @@ fn draw_details(frame: &mut Frame, app: &App, area: Rect) {
     ];
 
     lines.push(field("Kind", node.kind.to_string()));
+
+    if node.ids.len() > 1 {
+        lines.push(field("Duplicates", format!("{} here", node.ids.len())));
+    }
 
     if node.child_count > 0 {
         let plural = if node.child_count == 1 {
@@ -199,7 +210,7 @@ fn draw_details(frame: &mut Frame, app: &App, area: Rect) {
 
 fn field(label: &str, value: String) -> Line<'static> {
     Line::from(vec![
-        Span::styled(format!("{label:<9} "), Style::default().fg(MUTED)),
+        Span::styled(format!("{label:<10} "), Style::default().fg(MUTED)),
         Span::raw(value),
     ])
 }

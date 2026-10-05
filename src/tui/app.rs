@@ -9,12 +9,16 @@ use std::path::Path;
 use super::input::TextInput;
 use crate::db;
 use crate::inventory;
-use crate::model::{Item, Kind};
+use crate::model::{group_duplicates, Item, Kind};
 use crate::search;
 
 /// A single visible row of the tree.
 pub struct Node {
+    /// The item the row acts on: the oldest of its duplicates.
     pub id: i64,
+    /// Every item the row stands for, oldest first. More than one only for
+    /// duplicates.
+    pub ids: Vec<i64>,
     pub name: String,
     pub description: Option<String>,
     pub depth: usize,
@@ -187,7 +191,7 @@ impl App {
         };
 
         self.selected = previous
-            .and_then(|id| self.nodes.iter().position(|node| node.id == id))
+            .and_then(|id| self.position_of(id))
             .unwrap_or_else(|| self.selected.min(self.nodes.len().saturating_sub(1)));
     }
 
@@ -205,10 +209,15 @@ impl App {
         let matches = search::search(self.items.values(), &self.filter, |item| {
             self.path_of(item.id).join("/").to_lowercase()
         });
+        let child_count = |item: &Item| map.get(&Some(item.id)).map_or(0, |c| c.len());
+        let groups = group_duplicates(matches, |item| {
+            (child_count(item) == 0).then(|| item.duplicate_key())
+        });
 
-        matches
+        groups
             .into_iter()
-            .map(|item| {
+            .map(|group| {
+                let item = group[0];
                 let path = self.path_of(item.id);
                 // Always Some in filtered rows, so every match renders the same
                 // way. Root items simply carry an empty prefix.
@@ -219,11 +228,12 @@ impl App {
                 });
                 Node {
                     id: item.id,
+                    ids: group.iter().map(|item| item.id).collect(),
                     name: item.name.clone(),
                     description: item.description.clone(),
                     kind: item.kind,
                     depth: 0,
-                    child_count: map.get(&Some(item.id)).map_or(0, |c| c.len()),
+                    child_count: child_count(item),
                     expanded: false,
                     ancestors: Vec::new(),
                     is_last: true,
@@ -234,8 +244,13 @@ impl App {
             .collect()
     }
 
+    /// The row standing for `id`, which may be one of several duplicates.
+    fn position_of(&self, id: i64) -> Option<usize> {
+        self.nodes.iter().position(|node| node.ids.contains(&id))
+    }
+
     fn select_id(&mut self, id: i64) {
-        if let Some(index) = self.nodes.iter().position(|node| node.id == id) {
+        if let Some(index) = self.position_of(id) {
             self.selected = index;
         }
     }
@@ -700,13 +715,20 @@ fn push_level(
         return;
     };
 
-    for (index, item) in children.iter().enumerate() {
-        let is_last = index + 1 == children.len();
-        let child_count = map.get(&Some(item.id)).map_or(0, |c| c.len());
+    let child_count = |item: &Item| map.get(&Some(item.id)).map_or(0, |c| c.len());
+    let rows = group_duplicates(children.iter().copied(), |item| {
+        (child_count(item) == 0).then(|| item.duplicate_key())
+    });
+
+    for (index, group) in rows.iter().enumerate() {
+        let item = group[0];
+        let is_last = index + 1 == rows.len();
+        let child_count = child_count(item);
         let is_expanded = expanded.contains(&item.id) && child_count > 0;
 
         out.push(Node {
             id: item.id,
+            ids: group.iter().map(|item| item.id).collect(),
             name: item.name.clone(),
             description: item.description.clone(),
             kind: item.kind,
@@ -846,10 +868,9 @@ mod tests {
         press(&mut app, KeyCode::Enter);
 
         assert_eq!(app.status.as_ref().expect("a status").1, StatusKind::Info);
-        assert_eq!(
-            names(&app).iter().filter(|name| **name == "bike").count(),
-            2
-        );
+        let bikes: Vec<&Node> = app.nodes.iter().filter(|n| n.name == "bike").collect();
+        assert_eq!(bikes.len(), 1);
+        assert_eq!(bikes[0].ids.len(), 2);
     }
 
     #[test]
@@ -1003,6 +1024,92 @@ mod tests {
         press(&mut app, KeyCode::Char('t'));
 
         assert_eq!(app.selected_node().unwrap().name, "hammer");
+    }
+
+    /// Put `count` duplicates called `name` in the garage, and reload.
+    fn add_duplicates(app: &mut App, name: &str, count: usize) -> Vec<i64> {
+        let garage = id_of(app, "garage");
+        let ids = (0..count)
+            .map(|_| {
+                db::insert_item(&app.conn, name, None, Some(garage), Kind::Thing)
+                    .unwrap()
+                    .id
+            })
+            .collect();
+        app.reload().unwrap();
+        ids
+    }
+
+    #[test]
+    fn duplicates_share_one_row() {
+        let (mut app, _dir) = app();
+        let ids = add_duplicates(&mut app, "hdmi cable", 3);
+
+        let rows: Vec<&Node> = app
+            .nodes
+            .iter()
+            .filter(|n| n.name == "hdmi cable")
+            .collect();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].ids, ids);
+        assert_eq!(rows[0].id, ids[0], "the oldest stands for the row");
+    }
+
+    #[test]
+    fn a_duplicate_that_differs_gets_its_own_row() {
+        let (mut app, _dir) = app();
+        add_duplicates(&mut app, "hdmi cable", 2);
+        let garage = id_of(&app, "garage");
+        db::insert_item(
+            &app.conn,
+            "hdmi cable",
+            Some("2m"),
+            Some(garage),
+            Kind::Thing,
+        )
+        .unwrap();
+        app.reload().unwrap();
+
+        let counts: Vec<usize> = app
+            .nodes
+            .iter()
+            .filter(|n| n.name == "hdmi cable")
+            .map(|n| n.ids.len())
+            .collect();
+        assert_eq!(counts, [2, 1]);
+    }
+
+    #[test]
+    fn describing_one_duplicate_splits_it_out_and_keeps_it_selected() {
+        let (mut app, _dir) = app();
+        let ids = add_duplicates(&mut app, "hdmi cable", 3);
+        app.select_id(ids[0]);
+
+        press(&mut app, KeyCode::Char('d'));
+        type_text(&mut app, "2m");
+        press(&mut app, KeyCode::Enter);
+
+        let selected = app.selected_node().unwrap();
+        assert_eq!(selected.description.as_deref(), Some("2m"));
+        assert_eq!(selected.ids, [ids[0]]);
+        let rest = app
+            .nodes
+            .iter()
+            .find(|n| n.name == "hdmi cable" && n.description.is_none())
+            .unwrap();
+        assert_eq!(rest.ids, ids[1..]);
+    }
+
+    #[test]
+    fn search_groups_duplicates() {
+        let (mut app, _dir) = app();
+        add_duplicates(&mut app, "hdmi cable", 2);
+
+        press(&mut app, KeyCode::Char('/'));
+        type_text(&mut app, "hdmi");
+
+        assert_eq!(names(&app), ["hdmi cable"]);
+        assert_eq!(app.nodes[0].ids.len(), 2);
     }
 
     #[test]

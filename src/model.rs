@@ -2,6 +2,8 @@
 
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::hash::Hash;
 use std::sync::OnceLock;
 
 /// Which characters to draw the tree with.
@@ -231,6 +233,19 @@ pub struct ItemWithPath {
 }
 
 impl Item {
+    /// What duplicates share: place, name, description and kind. Items that
+    /// hold something are never duplicates, which this leaves to the caller.
+    ///
+    /// Names compare as SQLite's NOCASE does, so this agrees with the lookups.
+    pub fn duplicate_key(&self) -> (Option<i64>, String, Option<String>, Kind) {
+        (
+            self.place_id,
+            self.name.to_ascii_lowercase(),
+            self.description.clone(),
+            self.kind,
+        )
+    }
+
     /// Convert to ItemWithPath with the given path and child count.
     pub fn with_path(self, path: Vec<String>, child_count: Option<i64>) -> ItemWithPath {
         ItemWithPath {
@@ -269,6 +284,32 @@ impl Item {
             kind: self.kind,
         }
     }
+}
+
+/// Fold duplicates together, keeping first-seen order.
+///
+/// `key` gives what two duplicates share, or `None` for an item that holds
+/// something and so is never a duplicate. Each group lists its members in the
+/// order they came.
+pub fn group_duplicates<T, K: Eq + Hash>(
+    items: impl IntoIterator<Item = T>,
+    key: impl Fn(&T) -> Option<K>,
+) -> Vec<Vec<T>> {
+    let mut groups: Vec<Vec<T>> = Vec::new();
+    let mut index: HashMap<K, usize> = HashMap::new();
+    for item in items {
+        match key(&item) {
+            Some(k) => match index.get(&k) {
+                Some(&i) => groups[i].push(item),
+                None => {
+                    index.insert(k, groups.len());
+                    groups.push(vec![item]);
+                }
+            },
+            None => groups.push(vec![item]),
+        }
+    }
+    groups
 }
 
 /// Item with nested children for tree display.

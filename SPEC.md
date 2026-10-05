@@ -708,7 +708,9 @@ None. `--db` applies. `--json` and `--csv` are ignored.
 | Bottom | The last result message, or the key hints |
 
 A place row carries a `▸` or `▾` marker and its child count. A leaf row
-carries a `·` marker.
+carries a `·` marker. Duplicates share one row with a count, as in
+`hdmi cable ×3`, in the tree and in search results. The details pane says how
+many duplicates share the place.
 
 #### Keys
 | Key | Action |
@@ -743,6 +745,9 @@ carries a `·` marker.
 4. A failed change leaves the database untouched and reports the reason in the
    bottom bar
 5. Removing a place orphans its children to root, the same as `rm`
+6. A key pressed on a duplicates row acts on one of them, the oldest, the same
+   as the CLI without `--all`. A change that makes it differ, such as a new
+   description, splits it onto its own row, and the cursor follows it
 
 #### Exit Codes
 | Code | Condition |
