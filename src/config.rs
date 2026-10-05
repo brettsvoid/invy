@@ -23,10 +23,15 @@ pub fn config_path() -> Result<PathBuf> {
         .join("config.toml"))
 }
 
+/// Where invy keeps its data, the database included: `~/.local/share/invy`.
+pub fn data_dir() -> Result<PathBuf> {
+    Ok(xdg_dir("XDG_DATA_HOME", ".local/share")?.join("invy"))
+}
+
 /// An XDG base directory: `$var` if it is an absolute path, else `~/fallback`.
 ///
 /// Used on every platform, rather than the platform directories, so macOS
-/// gets the same path as Linux.
+/// gets the same paths as Linux.
 fn xdg_dir(var: &str, fallback: &str) -> Result<PathBuf> {
     match std::env::var_os(var).map(PathBuf::from) {
         Some(dir) if dir.is_absolute() => Ok(dir),

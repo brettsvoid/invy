@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**invy** is a Rust CLI tool for home inventory management with hierarchical places. Items are organized in a tree structure (e.g., garage -> toolbox -> hammer). Single SQLite database at `~/.invy.db`.
+**invy** is a Rust CLI tool for home inventory management with hierarchical places. Items are organized in a tree structure (e.g., garage -> toolbox -> hammer). Single SQLite database at `~/.local/share/invy/invy.db` (`$XDG_DATA_HOME` respected).
 
 ## Build Commands
 
@@ -61,7 +61,7 @@ Nerd Font codepoints were picked by reading the `post` table of an installed pat
 - Integration tests in `tests/` directory using `assert_cmd` and `predicates`
 - `TestEnv` harness in `tests/common/mod.rs` creates isolated temporary databases
 - Each command has dedicated test file (e.g., `tests/add_test.rs`)
-- `TestEnv` points `HOME` and `XDG_CONFIG_HOME` into its temp dir, so a real config never leaks in. Use `cmd_without_db()` and `write_config()` to test config behaviour
+- `TestEnv` points `HOME`, `XDG_CONFIG_HOME` and `XDG_DATA_HOME` into its temp dir, so a real config never leaks in. Use `cmd_without_db()` and `write_config()` to test config behaviour
 - TUI logic is covered by unit tests in `src/tui/app.rs`. They drive `App::on_key` over a temporary database. Run with `cargo test --bin invy`
 
 ## Key Behaviors
@@ -69,7 +69,7 @@ Nerd Font codepoints were picked by reading the `post` table of an installed pat
 - Paths use `/` separator (e.g., `garage/toolbox/hammer`)
 - `--json`, `--csv` flags for output format
 - `--db <path>` overrides default database location
-- `~/.config/invy/config.toml` (`$XDG_CONFIG_HOME` respected) can set `db`. Precedence: `--db`, then config, then `~/.invy.db`. Unknown keys are an error
+- `~/.config/invy/config.toml` (`$XDG_CONFIG_HOME` respected) can set `db`. Precedence: `--db`, then config, then `~/.local/share/invy/invy.db`. Unknown keys are an error
 - See SPEC.md for complete behavioral specification
 
 ## Commit Style

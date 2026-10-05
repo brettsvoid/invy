@@ -40,7 +40,8 @@ fn db_flag_beats_config() {
     assert!(!db.exists());
 }
 
-/// Test: with no config file, the database is ~/.invy.db
+/// Test: with no config file, the database is $XDG_DATA_HOME/invy/invy.db,
+/// and its directory is created
 #[test]
 fn no_config_uses_default() {
     let env = common::TestEnv::new();
@@ -51,6 +52,20 @@ fn no_config_uses_default() {
         .success();
 
     assert!(env.default_db().exists());
+}
+
+/// Test: without XDG_DATA_HOME, the database is ~/.local/share/invy/invy.db
+#[test]
+fn default_db_falls_back_to_home_local_share() {
+    let env = common::TestEnv::new();
+
+    env.cmd_without_db()
+        .env_remove("XDG_DATA_HOME")
+        .args(["add", "hammer"])
+        .assert()
+        .success();
+
+    assert!(env.home().join(".local/share/invy/invy.db").exists());
 }
 
 /// Test: a config without `db` leaves the default in place

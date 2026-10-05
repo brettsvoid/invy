@@ -76,7 +76,10 @@ All commands support these flags:
 | `--db <path>` | | Use custom database file |
 | `--glyphs <set>` | | Tree characters: `nerd` (default), `unicode`, `ascii`. Reads `INVY_GLYPHS` |
 
-**Default database location:** `~/.invy.db`, unless the config file names another.
+**Default database location:** `~/.local/share/invy/invy.db`, or
+`$XDG_DATA_HOME/invy/invy.db` when `XDG_DATA_HOME` is set, unless the config
+file names another. invy creates the `invy` directory if it is missing. It
+does not create the directory of a path given by `--db` or the config file.
 
 `--glyphs` on the command line beats `INVY_GLYPHS` in the environment.
 
@@ -96,7 +99,7 @@ db = "~/Documents/inventory.db"
 
 | Setting | Default | Overridden by |
 |---------|---------|---------------|
-| `db` | `~/.invy.db` | `--db` |
+| `db` | `~/.local/share/invy/invy.db` | `--db` |
 
 An unknown setting or malformed TOML is an error that names the file. invy
 reads the file before every command, including those given `--db`.
@@ -646,7 +649,7 @@ All errors are written to stderr.
 
 ## Database
 
-SQLite database stored at `~/.invy.db` (configurable with `db` in the config file, or `--db`).
+SQLite database stored at `~/.local/share/invy/invy.db` (configurable with `db` in the config file, or `--db`).
 
 ### Schema
 ```sql

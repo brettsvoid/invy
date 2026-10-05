@@ -31,9 +31,14 @@ impl TestEnv {
         self.temp_dir.path().join("config")
     }
 
+    /// `$XDG_DATA_HOME` for this environment.
+    pub fn data_home(&self) -> PathBuf {
+        self.temp_dir.path().join("data")
+    }
+
     /// Where invy puts the database when nothing names one.
     pub fn default_db(&self) -> PathBuf {
-        self.home().join(".invy.db")
+        self.data_home().join("invy/invy.db")
     }
 
     /// Write `invy/config.toml` under `config_home`.
@@ -51,6 +56,7 @@ impl TestEnv {
         // Keep the user's own config and database out of reach.
         cmd.env("HOME", self.home());
         cmd.env("XDG_CONFIG_HOME", self.config_home());
+        cmd.env("XDG_DATA_HOME", self.data_home());
         cmd
     }
 

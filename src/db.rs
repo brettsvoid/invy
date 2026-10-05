@@ -6,20 +6,29 @@ use anyhow::{anyhow, Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 
+use crate::config;
 use crate::model::{Item, Kind};
 
-/// Get the default database path (~/.invy.db)
+/// Get the default database path (~/.local/share/invy/invy.db)
 pub fn default_db_path() -> Result<PathBuf> {
-    let home = directories::BaseDirs::new()
-        .ok_or_else(|| anyhow!("Could not determine home directory"))?;
-    Ok(home.home_dir().join(".invy.db"))
+    Ok(config::data_dir()?.join("invy.db"))
 }
 
 /// Open a database connection, creating and migrating if necessary.
+///
+/// The default location's directory is created if missing. A path the user
+/// gave is not: its directory has to exist already.
 pub fn open(path: Option<&Path>) -> Result<Connection> {
     let db_path = match path {
         Some(p) => p.to_path_buf(),
-        None => default_db_path()?,
+        None => {
+            let path = default_db_path()?;
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)
+                    .with_context(|| format!("Failed to create {:?}", dir))?;
+            }
+            path
+        }
     };
 
     let conn = Connection::open(&db_path)

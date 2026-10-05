@@ -98,7 +98,7 @@ terminal reserves one cell, which breaks the tree alignment.
 
 invy reads `~/.config/invy/config.toml` (or `$XDG_CONFIG_HOME/invy/config.toml`)
 if it exists. Create it yourself to keep the database somewhere other than
-`~/.invy.db`:
+`~/.local/share/invy/invy.db`:
 
 ```toml
 db = "~/Documents/inventory.db"
