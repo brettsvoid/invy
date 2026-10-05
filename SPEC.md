@@ -704,13 +704,19 @@ None. `--db` applies. `--json` and `--csv` are ignored.
 | Pane | Content |
 |------|---------|
 | Left | The place tree, one row per item |
-| Right | Name, path, child count, timestamps and description of the selection |
+| Right | Name, path, child count, timestamps and description of the selection. For a place, when anything inside it last changed |
 | Bottom | The last result message, or the key hints |
 
 A place row carries a `▸` or `▾` marker and its child count. A leaf row
 carries a `·` marker. Duplicates share one row with a count, as in
 `hdmi cable ×3`, in the tree and in search results. The details pane says how
 many duplicates share the place.
+
+**Unsorted** things, things at root, sit under an `Unsorted (N)` row at the
+top of the tree. It folds like a place, but it is not an item: keys that change
+an item do nothing on it. `p` into it moves the cut items to root, and `i` on it
+adds at root. Rooms, furniture and boxes at root stay at the top level, so
+giving an unsorted thing a place kind with `t` takes it out of Unsorted.
 
 #### Keys
 | Key | Action |
@@ -776,6 +782,9 @@ vim's.
     fix. A name already in the place adds a duplicate, and the bar says how
     many there now are
 12. `+` and `-` work on items that hold nothing, and ignore the marks
+13. A place's "Changed" time is the latest update of anything inside it, at
+    any depth. It is worked out each time, not stored. A move out of a place
+    does not count
 
 #### Exit Codes
 | Code | Condition |

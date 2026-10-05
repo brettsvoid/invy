@@ -130,7 +130,14 @@ fn row(node: &super::app::Node, marked: bool, cut: bool) -> Line<'static> {
             ));
         }
 
-        if node.child_count > 0 {
+        if node.unsorted {
+            spans.push(Span::styled(
+                node.name.clone(),
+                Style::default()
+                    .fg(ACCENT)
+                    .add_modifier(Modifier::ITALIC | Modifier::BOLD),
+            ));
+        } else if node.child_count > 0 {
             spans.push(Span::styled(
                 node.name.clone(),
                 Style::default().add_modifier(Modifier::BOLD),
@@ -174,6 +181,28 @@ fn draw_details(frame: &mut Frame, app: &App, area: Rect) {
         return;
     };
 
+    if node.unsorted {
+        let plural = if node.child_count == 1 {
+            "thing"
+        } else {
+            "things"
+        };
+        let lines = vec![
+            field("Unsorted", format!("{} {plural} at root", node.child_count)),
+            Line::raw(""),
+            Line::raw("Where these are has not been recorded yet."),
+            Line::from(Span::styled(
+                "Cut them with x and paste them into a place with p, or press t on one to make it a room, furniture or a box.",
+                Style::default().fg(MUTED),
+            )),
+        ];
+        let paragraph = Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false });
+        frame.render_widget(paragraph, area);
+        return;
+    }
+
     let path = app.path_of(node.id);
     let mut lines = vec![
         field("Name", node.name.clone()),
@@ -196,6 +225,9 @@ fn draw_details(frame: &mut Frame, app: &App, area: Rect) {
             "Contains",
             format!("{} {}", node.child_count, plural),
         ));
+        if let Some(changed) = app.last_changed(node.id) {
+            lines.push(field("Changed", changed));
+        }
     }
 
     if let Some(item) = app.item(node.id) {

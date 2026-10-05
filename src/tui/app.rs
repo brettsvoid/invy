@@ -12,6 +12,9 @@ use crate::inventory;
 use crate::model::{glyph_set, group_duplicates, Item, Kind};
 use crate::search;
 
+/// The id the Unsorted row goes by. SQLite never hands out 0.
+pub const UNSORTED: i64 = 0;
+
 /// A single visible row of the tree.
 pub struct Node {
     /// The item the row acts on: the oldest of its duplicates.
@@ -32,6 +35,9 @@ pub struct Node {
     /// Place path with a trailing `/`, set only on filtered rows.
     /// Empty for a match that sits at root.
     pub place_path: Option<String>,
+    /// The Unsorted row: not an item, but the things at root gathered under
+    /// one heading. Its `id` is [`UNSORTED`] and `ids` is empty.
+    pub unsorted: bool,
 }
 
 /// What the next keypress means.
@@ -144,8 +150,31 @@ impl App {
         self.nodes.get(self.selected)
     }
 
+    /// The cursor row, unless it is the Unsorted row, which is not an item.
+    fn item_node(&self) -> Option<&Node> {
+        self.selected_node().filter(|node| !node.unsorted)
+    }
+
+    /// The item on the cursor row. `None` on the Unsorted row.
     fn selected_id(&self) -> Option<i64> {
-        self.selected_node().map(|node| node.id)
+        self.item_node().map(|node| node.id)
+    }
+
+    /// When anything inside a place last changed, at any depth. `None` for an
+    /// item that holds nothing.
+    pub fn last_changed(&self, id: i64) -> Option<String> {
+        let map = self.children_map();
+        let mut latest: Option<&str> = None;
+        let mut stack = vec![id];
+        while let Some(place) = stack.pop() {
+            for child in map.get(&Some(place)).into_iter().flatten() {
+                if latest.is_none_or(|l| child.updated_at.as_str() > l) {
+                    latest = Some(&child.updated_at);
+                }
+                stack.push(child.id);
+            }
+        }
+        latest.map(str::to_string)
     }
 
     pub fn item_count(&self) -> usize {
@@ -200,7 +229,7 @@ impl App {
     }
 
     fn rebuild_nodes(&mut self) {
-        let previous = self.selected_id();
+        let previous = self.selected_node().map(|node| node.id);
 
         self.nodes = if self.filter.is_empty() {
             self.build_tree()
@@ -215,9 +244,48 @@ impl App {
 
     fn build_tree(&self) -> Vec<Node> {
         let map = self.children_map();
+        let root = map.get(&None).map_or(&[][..], Vec::as_slice);
+        // A thing at root has no recorded place, so it goes under Unsorted.
+        // Rooms, furniture and boxes may sit at root.
+        let (unsorted, places): (Vec<&Item>, Vec<&Item>) = root
+            .iter()
+            .copied()
+            .partition(|item| item.kind == Kind::Thing);
+
         let mut nodes = Vec::new();
         let mut ancestors = Vec::new();
-        self.push_level(&map, None, 0, &mut ancestors, &mut nodes);
+        if !unsorted.is_empty() {
+            let open = self.expanded.contains(&UNSORTED);
+            let is_last = places.is_empty();
+            nodes.push(Node {
+                id: UNSORTED,
+                ids: Vec::new(),
+                name: "Unsorted".to_string(),
+                description: None,
+                depth: 0,
+                child_count: unsorted.len(),
+                kind: Kind::Thing,
+                expanded: open,
+                ancestors: Vec::new(),
+                is_last,
+                parent: None,
+                place_path: None,
+                unsorted: true,
+            });
+            if open {
+                ancestors.push(!is_last);
+                self.push_level(
+                    &map,
+                    &unsorted,
+                    Some(UNSORTED),
+                    1,
+                    &mut ancestors,
+                    &mut nodes,
+                );
+                ancestors.pop();
+            }
+        }
+        self.push_level(&map, &places, None, 0, &mut ancestors, &mut nodes);
         nodes
     }
 
@@ -240,18 +308,16 @@ impl App {
     }
 
     /// Append one level of the tree, recursing into expanded places.
+    /// `parent` is the row the level hangs from, which may be Unsorted.
     fn push_level(
         &self,
         map: &HashMap<Option<i64>, Vec<&Item>>,
+        children: &[&Item],
         parent: Option<i64>,
         depth: usize,
         ancestors: &mut Vec<bool>,
         out: &mut Vec<Node>,
     ) {
-        let Some(children) = map.get(&parent) else {
-            return;
-        };
-
         let child_count = |item: &Item| map.get(&Some(item.id)).map_or(0, |c| c.len());
         let rows = group_duplicates(children.iter().copied(), |item| {
             self.row_key(item, child_count(item))
@@ -276,11 +342,13 @@ impl App {
                 is_last,
                 parent,
                 place_path: None,
+                unsorted: false,
             });
 
             if is_expanded {
+                let grandchildren = map.get(&Some(item.id)).map_or(&[][..], Vec::as_slice);
                 ancestors.push(!is_last);
-                self.push_level(map, Some(item.id), depth + 1, ancestors, out);
+                self.push_level(map, grandchildren, Some(item.id), depth + 1, ancestors, out);
                 ancestors.pop();
             }
         }
@@ -320,13 +388,18 @@ impl App {
                     is_last: true,
                     parent: self.parent_of(item),
                     place_path,
+                    unsorted: false,
                 }
             })
             .collect()
     }
 
-    /// The row standing for `id`, which may be one of several duplicates.
+    /// The row standing for `id`, which may be one of several duplicates, or
+    /// [`UNSORTED`].
     fn position_of(&self, id: i64) -> Option<usize> {
+        if id == UNSORTED {
+            return self.nodes.iter().position(|node| node.unsorted);
+        }
         self.nodes.iter().position(|node| node.ids.contains(&id))
     }
 
@@ -427,6 +500,7 @@ impl App {
             .filter_map(|item| self.parent_of(item))
             .collect();
         self.expanded.extend(ids);
+        self.expanded.insert(UNSORTED);
         self.rebuild_nodes();
     }
 
@@ -460,7 +534,7 @@ impl App {
     /// Add another of the cursor row's item.
     fn add_duplicate(&mut self) -> Result<String> {
         let node = self
-            .selected_node()
+            .item_node()
             .ok_or_else(|| anyhow!("nothing selected"))?;
         if node.child_count > 0 {
             return Err(anyhow!(
@@ -486,7 +560,7 @@ impl App {
     /// Remove one of the cursor row's duplicates, the newest. Removing the
     /// last one asks first, as `d` does.
     fn remove_duplicate(&mut self) {
-        let Some(node) = self.selected_node() else {
+        let Some(node) = self.item_node() else {
             return;
         };
         if node.child_count > 0 {
@@ -553,18 +627,20 @@ impl App {
     /// Put the cut items into the selected item. A refusal keeps the cut, so
     /// it can go somewhere else.
     fn paste(&mut self) -> Result<String> {
-        let place_id = self
-            .selected_id()
+        let node = self
+            .selected_node()
             .ok_or_else(|| anyhow!("select a place to paste into"))?;
+        // Pasting into Unsorted puts things back at root.
+        let place_id = (!node.unsorted).then_some(node.id);
         let mut ids: Vec<i64> = self.cut.iter().copied().collect();
         ids.sort_unstable();
 
         let tx = self.conn.unchecked_transaction()?;
-        self.move_all(&tx, &ids, Some(place_id))?;
+        self.move_all(&tx, &ids, place_id)?;
         tx.commit()?;
 
         self.cut.clear();
-        Ok(self.moved(&ids, Some(place_id)))
+        Ok(self.moved(&ids, place_id))
     }
 
     /// Move every item, or none of them: `conn` is a transaction.
@@ -604,7 +680,7 @@ impl App {
 
     /// Step the selection to the next or previous kind, and save it.
     fn cycle_kind(&mut self, forwards: bool) {
-        let Some(node) = self.selected_node() else {
+        let Some(node) = self.item_node() else {
             return;
         };
         let (id, name) = (node.id, node.name.clone());
@@ -654,19 +730,19 @@ impl App {
                 return true;
             }
         }
-        self.nodes
-            .get(index)
-            .is_some_and(|node| node.ids.iter().all(|id| self.marks.contains(id)))
+        self.nodes.get(index).is_some_and(|node| {
+            !node.ids.is_empty() && node.ids.iter().all(|id| self.marks.contains(id))
+        })
     }
 
     /// Whether the row's items are cut, waiting for `p`.
     pub fn is_cut(&self, node: &Node) -> bool {
-        node.ids.iter().all(|id| self.cut.contains(id))
+        !node.ids.is_empty() && node.ids.iter().all(|id| self.cut.contains(id))
     }
 
     /// Mark the cursor row, every duplicate on it, or unmark it if marked.
     fn toggle_mark(&mut self) {
-        let Some(node) = self.selected_node() else {
+        let Some(node) = self.item_node() else {
             return;
         };
         let ids = node.ids.clone();
@@ -809,18 +885,23 @@ impl App {
 
             // Beside the cursor row, inside it, or at root.
             KeyCode::Char('a') => {
-                let place = self.selected_node().and_then(|node| node.parent);
+                let place = self
+                    .selected_node()
+                    .and_then(|node| node.parent)
+                    .filter(|id| *id != UNSORTED);
                 self.open_add(place);
             }
             KeyCode::Char('i') => self.open_add(self.selected_id()),
             KeyCode::Char('A') => self.open_add(None),
             KeyCode::Char('+') => {
-                let result = self.add_duplicate();
-                self.apply(result);
+                if self.item_node().is_some() {
+                    let result = self.add_duplicate();
+                    self.apply(result);
+                }
             }
             KeyCode::Char('-') => self.remove_duplicate(),
             KeyCode::Char('r') => {
-                if let Some(node) = self.selected_node() {
+                if let Some(node) = self.item_node() {
                     let (id, name) = (node.id, node.name.clone());
                     self.open_prompt(
                         format!("Rename '{name}'"),
@@ -831,7 +912,7 @@ impl App {
                 }
             }
             KeyCode::Char('e') => {
-                if let Some(node) = self.selected_node() {
+                if let Some(node) = self.item_node() {
                     let id = node.id;
                     let name = node.name.clone();
                     let current = node.description.clone().unwrap_or_default();
@@ -1833,5 +1914,132 @@ mod tests {
         press(&mut app, KeyCode::Char('y'));
 
         assert!(!names(&app).contains(&"bike"));
+    }
+
+    /// Add a thing and a cupboard at root, so there is something unsorted.
+    fn add_unsorted(app: &mut App) {
+        db::insert_item(&app.conn, "hdmi cable", None, None, Kind::Thing).unwrap();
+        db::insert_item(&app.conn, "cupboard", None, None, Kind::Furniture).unwrap();
+        app.reload().unwrap();
+        app.expand_all();
+    }
+
+    #[test]
+    fn things_at_root_sit_under_an_unsorted_row_at_the_top() {
+        let (mut app, _dir) = app();
+        add_unsorted(&mut app);
+
+        assert_eq!(
+            names(&app),
+            [
+                "Unsorted",
+                "hdmi cable",
+                "attic",
+                "cupboard",
+                "garage",
+                "bike",
+                "toolbox",
+                "hammer"
+            ]
+        );
+        assert!(app.nodes[0].unsorted);
+        assert_eq!(app.nodes[0].child_count, 1);
+        assert_eq!(app.nodes[1].depth, 1);
+    }
+
+    #[test]
+    fn the_unsorted_row_folds() {
+        let (mut app, _dir) = app();
+        add_unsorted(&mut app);
+        select(&mut app, "Unsorted");
+
+        press(&mut app, KeyCode::Enter);
+
+        assert!(!names(&app).contains(&"hdmi cable"));
+    }
+
+    #[test]
+    fn keys_that_change_an_item_do_nothing_on_the_unsorted_row() {
+        let (mut app, _dir) = app();
+        add_unsorted(&mut app);
+
+        for key in ['r', 'e', 'm', 'd', 'x', '+', '-', 't', ' '] {
+            select(&mut app, "Unsorted");
+            press(&mut app, KeyCode::Char(key));
+            assert!(matches!(app.mode, Mode::Normal), "{key:?} opened something");
+        }
+        assert!(app.marks.is_empty());
+        assert!(app.cut.is_empty());
+        assert_eq!(app.item_count(), 7);
+    }
+
+    #[test]
+    fn pasting_into_unsorted_moves_to_root() {
+        let (mut app, _dir) = app();
+        add_unsorted(&mut app);
+        select(&mut app, "bike");
+        press(&mut app, KeyCode::Char('x'));
+
+        select(&mut app, "Unsorted");
+        press(&mut app, KeyCode::Char('p'));
+
+        assert_eq!(app.path_of(id_of(&app, "bike")), ["bike"]);
+        let bike = app.nodes.iter().find(|n| n.name == "bike").unwrap();
+        assert_eq!(bike.depth, 1, "bike is now unsorted");
+    }
+
+    #[test]
+    fn adding_inside_unsorted_adds_at_root() {
+        let (mut app, _dir) = app();
+        add_unsorted(&mut app);
+        select(&mut app, "Unsorted");
+
+        press(&mut app, KeyCode::Char('i'));
+        type_text(&mut app, "tape");
+        press(&mut app, KeyCode::Enter);
+
+        assert_eq!(app.path_of(id_of(&app, "tape")), ["tape"]);
+    }
+
+    #[test]
+    fn h_on_an_unsorted_thing_selects_the_unsorted_row() {
+        let (mut app, _dir) = app();
+        add_unsorted(&mut app);
+        select(&mut app, "hdmi cable");
+
+        press(&mut app, KeyCode::Char('h'));
+
+        assert!(app.selected_node().unwrap().unsorted);
+    }
+
+    #[test]
+    fn giving_an_unsorted_thing_a_place_kind_sorts_it() {
+        let (mut app, _dir) = app();
+        add_unsorted(&mut app);
+        select(&mut app, "hdmi cable");
+
+        press(&mut app, KeyCode::Char('t'));
+
+        assert!(!names(&app).contains(&"Unsorted"));
+        let cable = app.nodes.iter().find(|n| n.name == "hdmi cable").unwrap();
+        assert_eq!(cable.depth, 0);
+    }
+
+    #[test]
+    fn a_place_was_last_changed_when_anything_inside_it_was() {
+        let (mut app, _dir) = app();
+        app.conn
+            .execute(
+                "UPDATE items SET updated_at = '2030-01-01 00:00:00' WHERE name = 'hammer'",
+                [],
+            )
+            .unwrap();
+        app.reload().unwrap();
+
+        assert_eq!(
+            app.last_changed(id_of(&app, "garage")).as_deref(),
+            Some("2030-01-01 00:00:00")
+        );
+        assert_eq!(app.last_changed(id_of(&app, "bike")), None);
     }
 }
