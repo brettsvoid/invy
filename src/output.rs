@@ -56,42 +56,71 @@ pub fn print_list_items(items: &[ListItem], format: Format) -> Result<()> {
     }
 }
 
-/// Print added item message.
-pub fn print_added(item: &ItemWithPath, format: Format) -> Result<()> {
+/// Say how many items a command acted on, after its verb: " 3", or " 1 of 3"
+/// when it took one of several duplicates. Nothing when only one matched.
+fn counted(done: usize, matched: usize) -> String {
+    if matched <= 1 {
+        String::new()
+    } else if done == matched {
+        format!(" {done}")
+    } else {
+        format!(" {done} of {matched}")
+    }
+}
+
+/// Print one JSON object for a single item, or an array for several.
+fn print_json_one_or_many(items: &[ItemWithPath]) -> Result<()> {
+    match items {
+        [item] => print_json(item),
+        _ => print_json(items),
+    }
+}
+
+/// Print added items message. Several items are duplicates of one another.
+pub fn print_added(items: &[ItemWithPath], format: Format) -> Result<()> {
+    let item = &items[0];
     match format {
         Format::Human => {
-            println!("Added: {}", item.name);
+            println!("Added{}: {}", counted(items.len(), items.len()), item.name);
             if item.path.len() > 1 {
                 let place_path = &item.path[..item.path.len() - 1];
                 println!("  -> {}", place_path.join(" -> "));
             }
             Ok(())
         }
-        Format::Json => print_json(item),
+        Format::Json => print_json_one_or_many(items),
         Format::Csv => {
             println!("id,name,description,kind,place");
-            println!(
-                "{},{},{},{},{}",
-                item.id,
-                item.name,
-                item.description.as_deref().unwrap_or(""),
-                item.kind,
-                if item.path.len() > 1 {
-                    item.path[item.path.len() - 2].clone()
-                } else {
-                    String::new()
-                }
-            );
+            for item in items {
+                println!(
+                    "{},{},{},{},{}",
+                    item.id,
+                    item.name,
+                    item.description.as_deref().unwrap_or(""),
+                    item.kind,
+                    if item.path.len() > 1 {
+                        item.path[item.path.len() - 2].clone()
+                    } else {
+                        String::new()
+                    }
+                );
+            }
             Ok(())
         }
     }
 }
 
-/// Print moved item message.
-pub fn print_moved(item: &ItemWithPath, old_path: &[String], format: Format) -> Result<()> {
+/// Print moved items message. Several items are duplicates of one another.
+pub fn print_moved(
+    items: &[ItemWithPath],
+    matched: usize,
+    old_path: &[String],
+    format: Format,
+) -> Result<()> {
+    let item = &items[0];
     match format {
         Format::Human => {
-            println!("Moved: {}", item.name);
+            println!("Moved{}: {}", counted(items.len(), matched), item.name);
             if old_path.len() > 1 {
                 println!(
                     "  {} -> {}",
@@ -114,16 +143,22 @@ pub fn print_moved(item: &ItemWithPath, old_path: &[String], format: Format) -> 
             }
             Ok(())
         }
-        Format::Json => print_json(item),
-        Format::Csv => print_item_csv(item),
+        Format::Json => print_json_one_or_many(items),
+        Format::Csv => print_items_csv(items),
     }
 }
 
-/// Print removed item message.
-pub fn print_removed(name: &str, orphaned: &[String], format: Format) -> Result<()> {
+/// Print removed items message.
+pub fn print_removed(
+    name: &str,
+    removed: usize,
+    matched: usize,
+    orphaned: &[String],
+    format: Format,
+) -> Result<()> {
     match format {
         Format::Human => {
-            println!("Removed: {}", name);
+            println!("Removed{}: {}", counted(removed, matched), name);
             if !orphaned.is_empty() {
                 println!("Orphaned {} items to root:", orphaned.len());
                 for item_name in orphaned {
@@ -136,16 +171,18 @@ pub fn print_removed(name: &str, orphaned: &[String], format: Format) -> Result<
             #[derive(Serialize)]
             struct RemovedOutput {
                 removed: String,
+                count: usize,
                 orphaned: Vec<String>,
             }
             print_json(&RemovedOutput {
                 removed: name.to_string(),
+                count: removed,
                 orphaned: orphaned.to_vec(),
             })
         }
         Format::Csv => {
-            println!("removed,orphaned");
-            println!("{},{}", name, orphaned.join(";"));
+            println!("removed,orphaned,count");
+            println!("{},{},{}", name, orphaned.join(";"), removed);
             Ok(())
         }
     }

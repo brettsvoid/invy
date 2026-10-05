@@ -174,3 +174,37 @@ fn add_into_slash_is_root() {
         .success()
         .stdout(predicate::str::contains("hammer"));
 }
+
+/// Test: `--count` adds that many duplicates
+#[test]
+fn add_count_adds_duplicates() {
+    let env = common::TestEnv::new();
+
+    env.run(&["add", "hdmi cable", "--in", "storage", "--count", "3"])
+        .success()
+        .stdout(predicate::str::contains("Added 3: hdmi cable"));
+
+    env.run(&["list", "storage", "--csv"])
+        .success()
+        .stdout(predicate::function(|out: &str| out.lines().count() == 4));
+}
+
+/// Test: with `--count` above 1, JSON output is an array of the new items
+#[test]
+fn add_count_json_is_an_array() {
+    let env = common::TestEnv::new();
+
+    env.run(&["add", "hdmi cable", "--count", "2", "--json"])
+        .success()
+        .stdout(predicate::str::starts_with("["))
+        .stdout(predicate::str::contains(r#""id":1"#))
+        .stdout(predicate::str::contains(r#""id":2"#));
+}
+
+/// Test: `--count 0` is refused
+#[test]
+fn add_count_zero_fails() {
+    let env = common::TestEnv::new();
+
+    env.run(&["add", "hdmi cable", "--count", "0"]).failure();
+}

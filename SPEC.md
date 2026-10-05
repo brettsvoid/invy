@@ -144,6 +144,7 @@ Add a new item to the inventory.
 | `--desc <text>` | `-d` | Item description |
 | `--in <place>` | `-i` | Place to put the item in |
 | `--kind <kind>` | `-k` | What sort of thing this is. Default: `thing` |
+| `--count <n>` | | How many to add, each its own item. Default: 1. At least 1 |
 
 #### Behavior
 1. If `--in` is specified and place doesn't exist, **auto-create it**
@@ -153,14 +154,23 @@ Add a new item to the inventory.
    `/`. A blank description is no description
 4. `--in /` and `--in root` add at root. An `--in @id` must exist
 5. A refused add changes nothing, so an auto-created place is not left behind
+6. `--count 3` adds three duplicates in one go
 
 #### Output (human)
 ```
 Added: hammer
-  └─ toolbox → garage
+  -> garage -> toolbox
+```
+
+With `--count 3`:
+```
+Added 3: hdmi cable
+  -> cable storage
 ```
 
 #### Output (JSON)
+
+One object for one item. With `--count` above 1, an array of them.
 ```json
 {
   "id": 5,
@@ -172,6 +182,8 @@ Added: hammer
 ```
 
 #### Output (CSV)
+
+One row per item added.
 ```
 id,name,description,kind,place
 5,hammer,claw hammer,thing,toolbox
@@ -197,6 +209,9 @@ invy add "screwdriver" --in toolbox
 
 # Add with full path
 invy add "wrench" --in "garage/toolbox"
+
+# Add three identical cables
+invy add "hdmi cable" --in "cable storage" --count 3
 
 # Add a place and say what sort it is
 invy add "bedroom" --kind room
@@ -460,18 +475,42 @@ Move an item to a different place.
 | `item` | Yes | Item to move |
 | `destination` | Yes | Target place (use `/` for root) |
 
+#### Flags
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--all` | | Move every duplicate `item` matches, not just one |
+
 #### Behavior
 1. Moves item to new place
 2. If destination doesn't exist, **auto-create it**
 3. Cannot move a place into itself or its descendants
 4. Use `/`, `root` or an empty string as destination to move to root level
 5. A refused move changes nothing, so an auto-created place is not left behind
+6. When `item` matches several duplicates, one moves. `--all` moves them all.
+   `--all` never makes an ambiguous reference acceptable
 
 #### Output (human)
 ```
 Moved: hammer
-  toolbox → garage
-  to: workshop
+  garage -> toolbox -> workshop
+```
+
+One of several duplicates, then all of them:
+```
+Moved 1 of 3: hdmi cable
+  cable storage -> desk
+Moved 3: hdmi cable
+  cable storage -> desk
+```
+
+#### Output (JSON)
+
+One object for one item moved, as `show` prints it. An array when several moved.
+
+#### Output (CSV)
+```
+id,name,description,kind,path
+5,hammer,claw hammer,thing,workshop/hammer
 ```
 
 #### Exit Codes
@@ -491,6 +530,9 @@ invy mv hammer /
 
 # Move with full paths
 invy mv garage/toolbox/hammer workshop/bench
+
+# Move every duplicate hdmi cable
+invy mv "hdmi cable" "cable storage" --all
 ```
 
 ---
@@ -504,10 +546,17 @@ Remove an item from the inventory.
 |----------|----------|-------------|
 | `item` | Yes | Item to remove |
 
+#### Flags
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--all` | | Remove every duplicate `item` matches, not just one |
+
 #### Behavior
 1. Removes the specified item
 2. If item is a place with children: **orphan children to root level**
 3. Orphaned items retain their names and descriptions
+4. When `item` matches several duplicates, one is removed. `--all` removes
+   them all
 
 #### Output (human)
 ```
@@ -516,6 +565,22 @@ Orphaned 3 items to root:
   - hammer
   - screwdriver
   - wrench
+```
+
+One of several duplicates:
+```
+Removed 1 of 3: hdmi cable
+```
+
+#### Output (JSON)
+```json
+{"removed": "toolbox", "count": 1, "orphaned": ["hammer", "screwdriver", "wrench"]}
+```
+
+#### Output (CSV)
+```
+removed,orphaned,count
+toolbox,hammer;screwdriver;wrench,1
 ```
 
 #### Exit Codes

@@ -17,14 +17,17 @@ use crate::output::{self, Format};
 /// * `desc` - Optional description
 /// * `place` - Optional place to put the item in (auto-creates if needed)
 /// * `kind` - What sort of thing this is
+/// * `count` - How many to add, each its own item
 /// * `json` - Output as JSON
 /// * `csv` - Output as CSV
 /// * `db_path` - Optional custom database path
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     name: &str,
     desc: Option<&str>,
     place: Option<&str>,
     kind: Kind,
+    count: u32,
     json: bool,
     csv: bool,
     db_path: Option<&Path>,
@@ -38,13 +41,18 @@ pub fn run(
         Some(place_ref) => inventory::resolve_destination(&tx, place_ref)?,
         None => None,
     };
-    let item = inventory::add(&tx, name, desc, place_id, kind)?;
+    let mut added = Vec::with_capacity(count as usize);
+    for _ in 0..count {
+        added.push(inventory::add(&tx, name, desc, place_id, kind)?);
+    }
     tx.commit()?;
 
-    // Get full path for display
-    let path = db::get_item_path(&conn, item.id)?;
-    let child_count = db::count_children(&conn, item.id)?;
-    let item_with_path = item.with_path(path, Some(child_count));
+    // Get full paths for display
+    let mut items = Vec::with_capacity(added.len());
+    for item in added {
+        let path = db::get_item_path(&conn, item.id)?;
+        items.push(item.with_path(path, Some(0)));
+    }
 
-    output::print_added(&item_with_path, format)
+    output::print_added(&items, format)
 }

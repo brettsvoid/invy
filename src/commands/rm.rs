@@ -2,7 +2,7 @@
 //!
 //! See SPEC.md#invy-rm-item
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use std::path::Path;
 
 use crate::db;
@@ -15,26 +15,28 @@ use crate::output::{self, Format};
 ///
 /// # Arguments
 /// * `item` - Item to remove
+/// * `all` - Remove every duplicate the reference matches
 /// * `json` - Output as JSON
 /// * `csv` - Output as CSV
 /// * `db_path` - Optional custom database path
-pub fn run(item_ref: &str, json: bool, csv: bool, db_path: Option<&Path>) -> Result<()> {
+pub fn run(item_ref: &str, all: bool, json: bool, csv: bool, db_path: Option<&Path>) -> Result<()> {
     let conn = db::open(db_path)?;
     let format = Format::from_flags(json, csv);
 
-    // Resolve the item to remove
-    let item = inventory::resolve(&conn, item_ref)?
-        .ok_or_else(|| anyhow!("item '{}' not found", item_ref))?;
+    let (items, matched) = inventory::select(&conn, item_ref, all)?;
+    let item_name = items[0].name.clone();
 
-    let item_name = item.name.clone();
-
-    // Get children that will be orphaned
-    let children = db::list_items_in_place(&conn, item.id)?;
+    // Only a single place can hold anything, since duplicates hold nothing.
+    let children = db::list_items_in_place(&conn, items[0].id)?;
     let orphaned_names: Vec<String> = children.iter().map(|c| c.name.clone()).collect();
 
     // The ON DELETE SET NULL will automatically orphan children to root
     // when we delete the place
-    db::delete_item(&conn, item.id)?;
+    let tx = conn.unchecked_transaction()?;
+    for item in &items {
+        db::delete_item(&tx, item.id)?;
+    }
+    tx.commit()?;
 
-    output::print_removed(&item_name, &orphaned_names, format)
+    output::print_removed(&item_name, items.len(), matched, &orphaned_names, format)
 }

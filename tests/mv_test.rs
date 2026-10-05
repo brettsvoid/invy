@@ -171,3 +171,61 @@ fn move_to_an_unknown_id_fails() {
         .success()
         .stdout(predicate::function(|out: &str| out.lines().count() == 2));
 }
+
+/// Test: a name shared by duplicates moves one of them
+#[test]
+fn move_one_of_several_duplicates() {
+    let env = common::TestEnv::new();
+    for _ in 0..3 {
+        env.add("hdmi cable").success();
+    }
+
+    env.run(&["mv", "hdmi cable", "desk"])
+        .success()
+        .stdout(predicate::str::contains("Moved 1 of 3: hdmi cable"));
+
+    env.run(&["list", "desk", "--csv"])
+        .success()
+        .stdout(predicate::function(|out: &str| out.lines().count() == 2));
+}
+
+/// Test: `--all` moves every duplicate
+#[test]
+fn move_all_duplicates() {
+    let env = common::TestEnv::new();
+    for _ in 0..3 {
+        env.add("hdmi cable").success();
+    }
+
+    env.run(&["mv", "hdmi cable", "desk", "--all"])
+        .success()
+        .stdout(predicate::str::contains("Moved 3: hdmi cable"));
+
+    env.run(&["list", "desk", "--csv"])
+        .success()
+        .stdout(predicate::function(|out: &str| out.lines().count() == 4));
+}
+
+/// Test: with several items moved, JSON output is an array
+#[test]
+fn move_all_json_is_an_array() {
+    let env = common::TestEnv::new();
+    env.add("hdmi cable").success();
+    env.add("hdmi cable").success();
+
+    env.run(&["mv", "hdmi cable", "desk", "--all", "--json"])
+        .success()
+        .stdout(predicate::str::starts_with("["));
+}
+
+/// Test: `--all` takes every duplicate, but never items that differ
+#[test]
+fn move_all_still_refuses_an_ambiguous_name() {
+    let env = common::TestEnv::new();
+    env.add("hammer").success();
+    env.add_into("hammer", "toolbox").success();
+
+    env.run(&["mv", "hammer", "shed", "--all"])
+        .failure()
+        .stderr(predicate::str::contains("ambiguous"));
+}

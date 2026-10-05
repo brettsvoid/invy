@@ -55,6 +55,10 @@ pub enum Commands {
         /// What sort of thing this is
         #[arg(short, long, value_enum, default_value_t = Kind::Thing)]
         kind: Kind,
+
+        /// How many to add. Each one is its own item
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
+        count: u32,
     },
 
     /// Search for items by name or description
@@ -100,6 +104,10 @@ pub enum Commands {
 
         /// Target place (use "/" for root)
         destination: String,
+
+        /// Move every duplicate the name matches, not just one
+        #[arg(long)]
+        all: bool,
     },
 
     /// Remove an item from the inventory
@@ -108,6 +116,10 @@ pub enum Commands {
     Rm {
         /// Item to remove
         item: String,
+
+        /// Remove every duplicate the name matches, not just one
+        #[arg(long)]
+        all: bool,
     },
 
     /// Browse and edit the inventory in an interactive terminal UI

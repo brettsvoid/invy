@@ -30,11 +30,13 @@ fn main() -> Result<()> {
             desc,
             place,
             kind,
+            count,
         } => commands::add::run(
             &name,
             desc.as_deref(),
             place.as_deref(),
             kind,
+            count,
             cli.json,
             cli.csv,
             db_path,
@@ -50,11 +52,13 @@ fn main() -> Result<()> {
 
         Commands::Show { item } => commands::show::run(&item, cli.json, cli.csv, db_path),
 
-        Commands::Mv { item, destination } => {
-            commands::mv::run(&item, &destination, cli.json, cli.csv, db_path)
-        }
+        Commands::Mv {
+            item,
+            destination,
+            all,
+        } => commands::mv::run(&item, &destination, all, cli.json, cli.csv, db_path),
 
-        Commands::Rm { item } => commands::rm::run(&item, cli.json, cli.csv, db_path),
+        Commands::Rm { item, all } => commands::rm::run(&item, all, cli.json, cli.csv, db_path),
 
         Commands::Tui => tui::run(db_path),
 

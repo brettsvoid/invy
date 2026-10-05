@@ -61,6 +61,21 @@ pub fn resolve_all(conn: &Connection, reference: &str) -> Result<Vec<Item>> {
     Ok(matches)
 }
 
+/// The items a command acts on: the first match, or every match with `all`.
+///
+/// Also returns how many matched, so output can say "1 of 3".
+pub fn select(conn: &Connection, reference: &str, all: bool) -> Result<(Vec<Item>, usize)> {
+    let mut matches = resolve_all(conn, reference)?;
+    if matches.is_empty() {
+        return Err(anyhow!("item '{}' not found", reference.trim()));
+    }
+    let matched = matches.len();
+    if !all {
+        matches.truncate(1);
+    }
+    Ok((matches, matched))
+}
+
 /// Turn a destination as typed into a place id, creating the place if needed.
 ///
 /// `/`, `root` and an empty string all mean root. An `@id` must exist: it is

@@ -115,9 +115,28 @@ fn remove_one_duplicate() {
     env.add("hdmi cable").success();
     env.add("hdmi cable").success();
 
-    env.run(&["rm", "hdmi cable"]).success();
+    env.run(&["rm", "hdmi cable"])
+        .success()
+        .stdout(predicate::str::contains("Removed 1 of 2: hdmi cable"));
 
     env.run(&["list", "--csv"])
         .success()
         .stdout(predicate::function(|out: &str| out.lines().count() == 2));
+}
+
+/// Test: `--all` removes every duplicate
+#[test]
+fn remove_all_duplicates() {
+    let env = common::TestEnv::new();
+    for _ in 0..3 {
+        env.add("hdmi cable").success();
+    }
+
+    env.run(&["rm", "hdmi cable", "--all"])
+        .success()
+        .stdout(predicate::str::contains("Removed 3: hdmi cable"));
+
+    env.run(&["list", "--csv"])
+        .success()
+        .stdout(predicate::function(|out: &str| out.lines().count() == 1));
 }
