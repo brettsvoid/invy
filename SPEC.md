@@ -128,6 +128,10 @@ Add a new item to the inventory.
 1. If `--in` is specified and place doesn't exist, **auto-create it**
 2. Names must be unique within the same place
 3. Names at root level must be unique among root items
+4. The name and description are trimmed. A name cannot be empty or contain
+   `/`. A blank description is no description
+5. `--in /` and `--in root` add at root
+6. A refused add changes nothing, so an auto-created place is not left behind
 
 #### Output (human)
 ```
@@ -157,6 +161,7 @@ id,name,description,kind,place
 |------|-----------|
 | 0 | Success |
 | 1 | Duplicate name in the same place |
+| 1 | Empty name, or a name containing `/` |
 
 #### Examples
 ```bash
@@ -438,7 +443,8 @@ Move an item to a different place.
 1. Moves item to new place
 2. If destination doesn't exist, **auto-create it**
 3. Cannot move a place into itself or its descendants
-4. Use `/` or `root` as destination to move to root level
+4. Use `/`, `root` or an empty string as destination to move to root level
+5. A refused move changes nothing, so an auto-created place is not left behind
 
 #### Output (human)
 ```
@@ -527,8 +533,8 @@ Edit an existing item's name or description.
 
 #### Behavior
 1. At least one of `--name`, `--desc` or `--kind` must be provided
-2. New name must be unique within its place
-3. Use `--desc ""` to clear description
+2. New name must be unique within its place, and follows the name rules of `add`
+3. Use `--desc ""` to clear description. A blank description also clears it
 
 #### Output (human)
 ```
@@ -542,6 +548,7 @@ Updated: hammer → ball-peen hammer
 | 0 | Success |
 | 1 | Item not found |
 | 1 | Name conflict |
+| 1 | Empty name, or a name containing `/` |
 | 1 | No changes specified |
 | 1 | Unknown kind |
 
@@ -640,6 +647,8 @@ All errors are written to stderr.
 |-------|---------|
 | Item not found | `Error: item 'NAME' not found` |
 | Duplicate name | `Error: item 'NAME' already exists in PLACE` |
+| Empty name | `Error: name cannot be empty` |
+| Name with `/` | `Error: name cannot contain '/'` |
 | Circular move | `Error: cannot move 'NAME' into itself or its descendants` |
 | Ambiguous name | `Error: 'NAME' is ambiguous. Use full path: PATH1, PATH2` |
 | No changes | `Error: no changes specified. Use --name, --desc or --kind` |

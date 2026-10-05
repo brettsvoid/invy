@@ -2,10 +2,11 @@
 //!
 //! See SPEC.md#invy-add-name
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use std::path::Path;
 
 use crate::db;
+use crate::inventory;
 use crate::model::Kind;
 use crate::output::{self, Format};
 
@@ -31,26 +32,14 @@ pub fn run(
     let conn = db::open(db_path)?;
     let format = Format::from_flags(json, csv);
 
-    // Resolve place if specified
+    // A refused add must not leave an auto-created place behind.
+    let tx = conn.unchecked_transaction()?;
     let place_id = match place {
-        Some(place_ref) => {
-            let place_item = db::resolve_or_create_place(&conn, place_ref)?;
-            Some(place_item.id)
-        }
+        Some(place_ref) => inventory::resolve_destination(&tx, place_ref)?,
         None => None,
     };
-
-    // Check for duplicate name in same place
-    if db::name_exists_in_place(&conn, name, place_id)? {
-        let location = match place {
-            Some(c) => c.to_string(),
-            None => "(root)".to_string(),
-        };
-        return Err(anyhow!("item '{}' already exists in {}", name, location));
-    }
-
-    // Insert the item
-    let item = db::insert_item(&conn, name, desc, place_id, kind)?;
+    let item = inventory::add(&tx, name, desc, place_id, kind)?;
+    tx.commit()?;
 
     // Get full path for display
     let path = db::get_item_path(&conn, item.id)?;

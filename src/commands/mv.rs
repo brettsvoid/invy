@@ -6,6 +6,7 @@ use anyhow::{anyhow, Result};
 use std::path::Path;
 
 use crate::db;
+use crate::inventory;
 use crate::output::{self, Format};
 
 /// Move an item to a different place.
@@ -33,48 +34,11 @@ pub fn run(
     // Get old path for display
     let old_path = db::get_item_path(&conn, item.id)?;
 
-    // Resolve destination
-    let new_place_id = if destination == "/" || destination == "root" {
-        None
-    } else {
-        let place = db::resolve_or_create_place(&conn, destination)?;
-
-        // Check for circular reference
-        if place.id == item.id {
-            return Err(anyhow!(
-                "cannot move '{}' into itself or its descendants",
-                item.name
-            ));
-        }
-        if db::is_ancestor(&conn, item.id, place.id)? {
-            return Err(anyhow!(
-                "cannot move '{}' into itself or its descendants",
-                item.name
-            ));
-        }
-
-        Some(place.id)
-    };
-
-    // Check for name conflict in destination
-    if db::name_exists_in_place(&conn, &item.name, new_place_id)? {
-        // Check if it's the same item (moving to same place)
-        if item.place_id != new_place_id {
-            let dest_name = if destination == "/" || destination == "root" {
-                "(root)".to_string()
-            } else {
-                destination.to_string()
-            };
-            return Err(anyhow!(
-                "item '{}' already exists in {}",
-                item.name,
-                dest_name
-            ));
-        }
-    }
-
-    // Perform the move
-    db::move_item(&conn, item.id, new_place_id)?;
+    // A refused move must not leave an auto-created place behind.
+    let tx = conn.unchecked_transaction()?;
+    let new_place_id = inventory::resolve_destination(&tx, destination)?;
+    inventory::move_to(&tx, &item, new_place_id)?;
+    tx.commit()?;
 
     // Get updated item for display
     let updated_item = db::get_item_by_id(&conn, item.id)?

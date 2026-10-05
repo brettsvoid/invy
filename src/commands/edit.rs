@@ -6,6 +6,7 @@ use anyhow::{anyhow, Result};
 use std::path::Path;
 
 use crate::db;
+use crate::inventory;
 use crate::model::Kind;
 use crate::output::{self, Format};
 
@@ -46,24 +47,13 @@ pub fn run(
     let old_desc = item.description.clone();
     let old_kind = item.kind;
 
-    // Update name if specified
+    // The name goes first, so a refused name leaves everything unchanged.
     if let Some(name) = new_name {
-        // Check for name conflict
-        if name != item.name && db::name_exists_in_place(&conn, name, item.place_id)? {
-            let location = if item.place_id.is_some() {
-                "place"
-            } else {
-                "(root)"
-            };
-            return Err(anyhow!("item '{}' already exists in {}", name, location));
-        }
-        db::update_item_name(&conn, item.id, name)?;
+        inventory::rename(&conn, &item, name)?;
     }
 
-    // Update description if specified
     if let Some(desc) = new_desc {
-        let desc_value = if desc.is_empty() { None } else { Some(desc) };
-        db::update_item_description(&conn, item.id, desc_value)?;
+        inventory::describe(&conn, item.id, desc)?;
     }
 
     // Update kind if specified

@@ -100,3 +100,61 @@ fn add_with_csv_output() {
         .stdout(predicate::str::contains("id,name,description,kind,place"))
         .stdout(predicate::str::contains("hammer"));
 }
+
+/// Test: a name with '/' is refused, because '/' separates a path
+#[test]
+fn add_name_with_slash_fails() {
+    let env = common::TestEnv::new();
+
+    env.add("usb a/c adapter")
+        .failure()
+        .stderr(predicate::str::contains("cannot contain '/'"));
+}
+
+/// Test: an empty or blank name is refused
+#[test]
+fn add_blank_name_fails() {
+    let env = common::TestEnv::new();
+
+    env.add("")
+        .failure()
+        .stderr(predicate::str::contains("cannot be empty"));
+    env.add("   ")
+        .failure()
+        .stderr(predicate::str::contains("cannot be empty"));
+}
+
+/// Test: surrounding whitespace is trimmed from the name and description
+#[test]
+fn add_trims_name_and_description() {
+    let env = common::TestEnv::new();
+
+    env.add_with_desc("  hammer  ", "   ").success();
+
+    env.run(&["show", "hammer", "--json"])
+        .success()
+        .stdout(predicate::str::contains(r#""name":"hammer""#))
+        .stdout(predicate::str::contains("description").not());
+}
+
+/// Test: a refused add leaves no auto-created place behind
+#[test]
+fn add_refused_does_not_create_the_place() {
+    let env = common::TestEnv::new();
+
+    env.add_into("a/b", "shed").failure();
+
+    env.run(&["show", "shed"]).failure();
+}
+
+/// Test: `--in /` adds at root, the same as `mv`
+#[test]
+fn add_into_slash_is_root() {
+    let env = common::TestEnv::new();
+
+    env.add_into("hammer", "/").success();
+
+    env.run(&["list"])
+        .success()
+        .stdout(predicate::str::contains("hammer"));
+}

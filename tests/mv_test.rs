@@ -118,3 +118,31 @@ fn move_name_conflict_fails() {
         .failure()
         .stderr(predicate::str::contains("already exists"));
 }
+
+/// Test: an empty destination means root, as in the TUI
+#[test]
+fn move_to_empty_destination_is_root() {
+    let env = common::TestEnv::new();
+    env.add_into("hammer", "toolbox").success();
+
+    env.run(&["mv", "hammer", ""]).success();
+
+    // Two root items, toolbox and hammer, and no empty-named place.
+    env.run(&["list", "--csv"])
+        .success()
+        .stdout(predicate::str::contains("hammer"))
+        .stdout(predicate::function(|out: &str| out.lines().count() == 3));
+}
+
+/// Test: a refused move leaves no auto-created place behind
+#[test]
+fn move_refused_does_not_create_the_place() {
+    let env = common::TestEnv::new();
+    env.add("garage").success();
+
+    env.run(&["mv", "garage", "garage/shelf"])
+        .failure()
+        .stderr(predicate::str::contains("itself or its descendants"));
+
+    env.run(&["show", "garage/shelf"]).failure();
+}

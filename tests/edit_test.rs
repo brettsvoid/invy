@@ -144,3 +144,39 @@ fn edit_with_json_output() {
         .success()
         .stdout(predicate::str::contains(r#""name":"new_hammer""#));
 }
+
+/// Test: renaming to a name with '/' is refused
+#[test]
+fn edit_name_with_slash_fails() {
+    let env = common::TestEnv::new();
+    env.add("hammer").success();
+
+    env.run(&["edit", "hammer", "--name", "claw/hammer"])
+        .failure()
+        .stderr(predicate::str::contains("cannot contain '/'"));
+    env.run(&["show", "hammer"]).success();
+}
+
+/// Test: renaming to an empty name is refused
+#[test]
+fn edit_blank_name_fails() {
+    let env = common::TestEnv::new();
+    env.add("hammer").success();
+
+    env.run(&["edit", "hammer", "--name", " "])
+        .failure()
+        .stderr(predicate::str::contains("cannot be empty"));
+    env.run(&["show", "hammer"]).success();
+}
+
+/// Test: a new name is trimmed
+#[test]
+fn edit_trims_the_new_name() {
+    let env = common::TestEnv::new();
+    env.add("hammer").success();
+
+    env.run(&["edit", "hammer", "--name", "  claw hammer  "])
+        .success();
+
+    env.run(&["show", "claw hammer"]).success();
+}

@@ -8,6 +8,7 @@ use std::path::Path;
 
 use super::input::TextInput;
 use crate::db;
+use crate::inventory;
 use crate::model::{Item, Kind};
 
 /// A single visible row of the tree.
@@ -345,104 +346,56 @@ impl App {
     // -- actions ---------------------------------------------------------
 
     fn add_item(&mut self, place_id: Option<i64>, name: &str) -> Result<String> {
-        // New items start as things. `k` reclassifies them.
-        let kind = Kind::Thing;
-        let name = name.trim();
-        if name.is_empty() {
-            return Err(anyhow!("name cannot be empty"));
-        }
-        if name.contains('/') {
-            return Err(anyhow!("name cannot contain '/'"));
-        }
-        if db::name_exists_in_place(&self.conn, name, place_id)? {
-            return Err(anyhow!("'{name}' already exists here"));
-        }
-
-        let item = db::insert_item(&self.conn, name, None, place_id, kind)?;
+        // New items start as things. `t` reclassifies them.
+        let item = inventory::add(&self.conn, name, None, place_id, Kind::Thing)?;
         if let Some(id) = place_id {
             self.expanded.insert(id);
         }
         self.pending_selection = Some(item.id);
-        Ok(format!("Added '{name}'"))
+        Ok(format!("Added '{}'", item.name))
     }
 
     fn rename_item(&mut self, id: i64, new_name: &str) -> Result<String> {
-        let new_name = new_name.trim();
-        if new_name.is_empty() {
-            return Err(anyhow!("name cannot be empty"));
-        }
-        if new_name.contains('/') {
-            return Err(anyhow!("name cannot contain '/'"));
-        }
-
         let item = self
             .items
             .get(&id)
             .ok_or_else(|| anyhow!("item no longer exists"))?;
-        let old_name = item.name.clone();
-        if old_name == new_name {
-            return Ok(format!("'{old_name}' unchanged"));
-        }
 
-        let place_id = item.place_id;
-        if db::name_exists_in_place(&self.conn, new_name, place_id)? {
-            return Err(anyhow!("'{new_name}' already exists here"));
+        if inventory::rename(&self.conn, item, new_name)? {
+            Ok(format!("Renamed '{}' to '{}'", item.name, new_name.trim()))
+        } else {
+            Ok(format!("'{}' unchanged", item.name))
         }
-
-        db::update_item_name(&self.conn, id, new_name)?;
-        Ok(format!("Renamed '{old_name}' to '{new_name}'"))
     }
 
     fn describe_item(&mut self, id: i64, text: &str) -> Result<String> {
-        let text = text.trim();
-        let description = if text.is_empty() { None } else { Some(text) };
-        db::update_item_description(&self.conn, id, description)?;
+        let set = inventory::describe(&self.conn, id, text)?;
 
         let name = self
             .items
             .get(&id)
             .map_or("item", |item| item.name.as_str());
-        Ok(match description {
-            Some(_) => format!("Updated description of '{name}'"),
-            None => format!("Cleared description of '{name}'"),
+        Ok(if set {
+            format!("Updated description of '{name}'")
+        } else {
+            format!("Cleared description of '{name}'")
         })
     }
 
     fn move_item(&mut self, id: i64, destination: &str) -> Result<String> {
         let destination = destination.trim();
-        let name = self
+        let item = self
             .items
             .get(&id)
-            .ok_or_else(|| anyhow!("item no longer exists"))?
-            .name
-            .clone();
+            .ok_or_else(|| anyhow!("item no longer exists"))?;
+        let name = item.name.clone();
 
-        let new_place_id = if destination.is_empty() || destination == "/" || destination == "root"
-        {
-            None
-        } else {
-            let place = db::resolve_or_create_place(&self.conn, destination)?;
-            if place.id == id || db::is_ancestor(&self.conn, id, place.id)? {
-                return Err(anyhow!(
-                    "cannot move '{name}' into itself or its descendants"
-                ));
-            }
-            Some(place.id)
-        };
+        // A refused move must not leave an auto-created place behind.
+        let tx = self.conn.unchecked_transaction()?;
+        let new_place_id = inventory::resolve_destination(&tx, destination)?;
+        inventory::move_to(&tx, item, new_place_id)?;
+        tx.commit()?;
 
-        let current_place_id = self.items.get(&id).and_then(|item| item.place_id);
-        if current_place_id != new_place_id
-            && db::name_exists_in_place(&self.conn, &name, new_place_id)?
-        {
-            let target = if destination.is_empty() {
-                "/"
-            } else {
-                destination
-            };
-            return Err(anyhow!("'{name}' already exists in {target}"));
-        }
-
-        db::move_item(&self.conn, id, new_place_id)?;
         if let Some(place_id) = new_place_id {
             self.expanded.insert(place_id);
         }
@@ -973,6 +926,21 @@ mod tests {
         assert_eq!(*kind, StatusKind::Error);
         assert!(message.contains("descendants"), "{message}");
         assert_eq!(app.path_of(id_of(&app, "garage")), ["garage"]);
+    }
+
+    #[test]
+    fn a_refused_move_creates_no_place() {
+        let (mut app, _dir) = app();
+        app.selected = app.nodes.iter().position(|n| n.name == "garage").unwrap();
+
+        press(&mut app, KeyCode::Char('m'));
+        type_text(&mut app, "garage/shelf");
+        press(&mut app, KeyCode::Enter);
+
+        assert_eq!(app.status.as_ref().expect("a status").1, StatusKind::Error);
+        assert!(db::get_item_by_path(&app.conn, "garage/shelf")
+            .unwrap()
+            .is_none());
     }
 
     #[test]

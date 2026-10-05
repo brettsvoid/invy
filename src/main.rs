@@ -6,6 +6,7 @@ mod cli;
 mod commands;
 mod config;
 mod db;
+mod inventory;
 mod model;
 mod output;
 mod tui;

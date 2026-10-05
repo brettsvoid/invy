@@ -27,6 +27,7 @@ src/
 ├── config.rs         # Config file (~/.config/invy/config.toml)
 ├── model.rs          # Data structures (Item, ItemWithPath, ListItem)
 ├── db.rs             # SQLite operations, migrations, queries
+├── inventory.rs      # Rules every change follows: names, moves, destinations
 ├── output.rs         # Output formatting (human/JSON/CSV)
 ├── commands/         # Command implementations (add, find, list, show, mv, rm, edit)
 └── tui/              # Interactive terminal UI (ratatui)
@@ -36,9 +37,11 @@ src/
     └── input.rs      # Single-line text input for prompts
 ```
 
-**Flow:** CLI parsing (cli.rs) → Command handler (commands/*) → Database (db.rs) → Output formatting (output.rs)
+**Flow:** CLI parsing (cli.rs) → Command handler (commands/*) → Rules (inventory.rs) → Database (db.rs) → Output formatting (output.rs)
 
-**TUI flow:** `invy tui` → tui::run → App holds one Connection and calls db.rs directly. It does not go through commands/* or output.rs.
+**TUI flow:** `invy tui` → tui::run → App holds one Connection and calls inventory.rs for changes and db.rs for reads. It does not go through commands/* or output.rs.
+
+Any rule about what a change may do (name checks, move checks, what a destination means) belongs in `inventory.rs`, never in a command or the TUI, so every front end enforces it the same way. A change that may auto-create a place runs in a transaction, so a refusal leaves nothing behind.
 
 ## Database Schema
 
