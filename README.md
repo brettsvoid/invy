@@ -94,6 +94,18 @@ without a patched font shows blank boxes.
 Use a **Mono** Nerd Font variant. The others draw icons double-width while the
 terminal reserves one cell, which breaks the tree alignment.
 
+## Configuration
+
+invy reads `~/.config/invy/config.toml` (or `$XDG_CONFIG_HOME/invy/config.toml`)
+if it exists. Create it yourself to keep the database somewhere other than
+`~/.invy.db`:
+
+```toml
+db = "~/Documents/inventory.db"
+```
+
+`--db` still beats it for a single command.
+
 ## Interactive mode
 
 ```bash

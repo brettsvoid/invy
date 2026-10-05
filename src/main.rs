@@ -4,6 +4,7 @@
 
 mod cli;
 mod commands;
+mod config;
 mod db;
 mod model;
 mod output;
@@ -18,7 +19,9 @@ fn main() -> Result<()> {
 
     model::set_glyph_set(cli.glyphs);
 
-    let db_path = cli.db.as_deref();
+    let config = config::load()?;
+    let db = cli.db.or(config.db);
+    let db_path = db.as_deref();
 
     match cli.command {
         Commands::Add {

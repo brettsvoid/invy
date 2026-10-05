@@ -15,14 +15,48 @@ impl TestEnv {
     pub fn new() -> Self {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let db_path = temp_dir.path().join("test.db");
-        Self { temp_dir, db_path }
+        let env = Self { temp_dir, db_path };
+        std::fs::create_dir_all(env.home()).expect("Failed to create home dir");
+        env
+    }
+
+    /// Home directory for this environment, inside the temp dir.
+    pub fn home(&self) -> PathBuf {
+        self.temp_dir.path().join("home")
+    }
+
+    /// `$XDG_CONFIG_HOME` for this environment. invy reads `invy/config.toml`
+    /// under it.
+    pub fn config_home(&self) -> PathBuf {
+        self.temp_dir.path().join("config")
+    }
+
+    /// Where invy puts the database when nothing names one.
+    pub fn default_db(&self) -> PathBuf {
+        self.home().join(".invy.db")
+    }
+
+    /// Write `invy/config.toml` under `config_home`.
+    pub fn write_config(&self, text: &str) {
+        let dir = self.config_home().join("invy");
+        std::fs::create_dir_all(&dir).expect("Failed to create config dir");
+        std::fs::write(dir.join("config.toml"), text).expect("Failed to write config");
+    }
+
+    /// Get a Command isolated from the real home and config, without `--db`.
+    pub fn cmd_without_db(&self) -> Command {
+        let mut cmd = Command::cargo_bin("invy").expect("Failed to find invy binary");
+        // An ambient INVY_GLYPHS would change the output these tests assert on.
+        cmd.env_remove("INVY_GLYPHS");
+        // Keep the user's own config and database out of reach.
+        cmd.env("HOME", self.home());
+        cmd.env("XDG_CONFIG_HOME", self.config_home());
+        cmd
     }
 
     /// Get a Command configured to use this test environment's database.
     pub fn cmd(&self) -> Command {
-        let mut cmd = Command::cargo_bin("invy").expect("Failed to find invy binary");
-        // An ambient INVY_GLYPHS would change the output these tests assert on.
-        cmd.env_remove("INVY_GLYPHS");
+        let mut cmd = self.cmd_without_db();
         cmd.arg("--db").arg(&self.db_path);
         cmd
     }
