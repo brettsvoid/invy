@@ -28,11 +28,11 @@ a fourth kind. The first three describe a place. `thing` is the default.
 The glyph set is chosen with `--glyphs`. It also decides the fold markers and
 the tree branches:
 
-| Set | Expanded | Collapsed | Leaf | Branches |
-|-----|----------|-----------|------|----------|
-| `nerd` (default) | `cod-triangle_down` U+EB6E | `cod-triangle_right` U+EB70 | `cod-circle_small` U+EC07 | `├── └── │` |
-| `unicode` | `▾` | `▸` | `·` | `├── └── │` |
-| `ascii` | `v` | `>` | `-` | `\|--` `` `-- `` `\|` |
+| Set | Expanded | Collapsed | Leaf | Branches | Duplicates |
+|-----|----------|-----------|------|----------|------------|
+| `nerd` (default) | `cod-triangle_down` U+EB6E | `cod-triangle_right` U+EB70 | `cod-circle_small` U+EC07 | `├── └── │` | `×` |
+| `unicode` | `▾` | `▸` | `·` | `├── └── │` | `×` |
+| `ascii` | `v` | `>` | `-` | `\|--` `` `-- `` `\|` | `x` |
 
 Every glyph is one column wide, so the tree lines up in all three sets. `nerd`
 is the default. Its codepoints sit in the Private Use Area, so a terminal
@@ -61,6 +61,10 @@ An item is one physical thing, so three identical cables are three items.
 Items are **duplicates** when they sit in the same place with the same name,
 description and kind, and none of them holds anything. Duplicates are
 interchangeable. See `docs/adr/0001-no-item-quantities.md`.
+
+Human output shows duplicates as one entry with a count, as in
+`hdmi cable ×3`. `--json` and `--csv` never group: each item is its own
+object or row, with its own id.
 
 ### References
 Every command that takes an item or a place takes a reference:
@@ -246,7 +250,7 @@ Search for items by name or description.
 
 Each result is printed as the full slash-path on the first line, with the
 description (if any) on an indented second line. The path is directly
-pasteable into `invy show`.
+pasteable into `invy show`. Duplicates print once, with a count.
 
 ```
 garage/toolbox/hammer
@@ -254,6 +258,8 @@ garage/toolbox/hammer
 
 workshop/hammer
   ball peen
+
+cable storage/hdmi cable ×3
 ```
 
 #### Output (JSON)
@@ -264,6 +270,7 @@ workshop/hammer
     "name": "hammer",
     "description": "claw hammer",
     "path": ["garage", "toolbox", "hammer"],
+    "child_count": 0,
     "kind": "thing"
   }
 ]
@@ -319,6 +326,8 @@ List items, optionally within a specific place.
 1. Without argument: lists all root-level items
 2. With place: lists direct children only (unless `--recursive`)
 3. Shows item name, description, and child count if place
+4. Duplicates share one row, with a count after the name. A place's child
+   count still counts every item
 
 #### Output (human)
 ```
@@ -326,6 +335,7 @@ NAME          KIND       DESCRIPTION      ITEMS
 toolbox       box        red metal box    3
 workbench     furniture  -                0
 hammer        thing      claw hammer      -
+hdmi cable ×3 thing      -                -
 ```
 
 With `--recursive`, each place carries its kind glyph:
@@ -335,7 +345,8 @@ With `--recursive`, each place carries its kind glyph:
 │   └── ▤ dresser [1]
 │       └── ▣ sock drawer [1]
 │           └── socks
-└── ⌂ garage [1]
+└── ⌂ garage [4]
+    ├── hdmi cable ×3
     └── ▣ toolbox [1]
         └── hammer (16oz claw)
 ```
@@ -395,6 +406,8 @@ Show detailed information about a specific item.
 1. Shows item details including full path
 2. If item is a place, shows child count
 3. Resolves the reference as described in [References](#references)
+4. If the item has duplicates, human output says how many share the place,
+   the item included
 4. If no exact name or path matches, performs a substring search across
    names and descriptions and prints `Did you mean:` followed by up to 10
    candidate paths to stderr before exiting with code 1
@@ -404,6 +417,17 @@ Show detailed information about a specific item.
 Name:        hammer
 Description: claw hammer
 Place:       toolbox → garage
+Kind:        thing
+Created:     2024-01-15 10:30:00
+Updated:     2024-01-15 10:30:00
+```
+
+One of three duplicates:
+```
+Name:        hdmi cable
+Description: -
+Place:       cable storage
+Duplicates:  3 here
 Kind:        thing
 Created:     2024-01-15 10:30:00
 Updated:     2024-01-15 10:30:00

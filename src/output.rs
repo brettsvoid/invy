@@ -4,6 +4,8 @@
 
 use anyhow::Result;
 use serde::Serialize;
+use std::collections::HashMap;
+use std::hash::Hash;
 use std::io;
 
 use crate::model::{glyph_set, ItemWithPath, Kind, ListItem, TreeItem};
@@ -29,10 +31,12 @@ impl Format {
     }
 }
 
-/// Output a single item (for add, show commands).
-pub fn print_item(item: &ItemWithPath, format: Format) -> Result<()> {
+/// Output a single item (for the show command).
+///
+/// `duplicates` counts the item and its duplicates. Only human output shows it.
+pub fn print_item(item: &ItemWithPath, duplicates: usize, format: Format) -> Result<()> {
     match format {
-        Format::Human => print_item_human(item),
+        Format::Human => print_item_human(item, duplicates),
         Format::Json => print_json(item),
         Format::Csv => print_item_csv(item),
     }
@@ -231,7 +235,51 @@ pub fn print_updated(
 
 // Human-readable formatters
 
-fn print_item_human(item: &ItemWithPath) -> Result<()> {
+/// Fold duplicates together for human output, keeping first-seen order.
+///
+/// `key` gives what two duplicates share, or `None` for an item that holds
+/// something and so is never a duplicate. Each entry comes back with how many
+/// items it stands for.
+fn group_duplicates<T, K: Eq + Hash>(
+    items: &[T],
+    key: impl Fn(&T) -> Option<K>,
+) -> Vec<(&T, usize)> {
+    let mut groups: Vec<(&T, usize)> = Vec::new();
+    let mut index: HashMap<K, usize> = HashMap::new();
+    for item in items {
+        match key(item) {
+            Some(k) => match index.get(&k) {
+                Some(&i) => groups[i].1 += 1,
+                None => {
+                    index.insert(k, groups.len());
+                    groups.push((item, 1));
+                }
+            },
+            None => groups.push((item, 1)),
+        }
+    }
+    groups
+}
+
+/// A name with its duplicate count, as in `hdmi cable ×3`.
+fn counted_name(name: &str, count: usize) -> String {
+    if count > 1 {
+        format!("{name} {}{count}", glyph_set().times())
+    } else {
+        name.to_string()
+    }
+}
+
+/// What two duplicates in one place share. Names compare as SQLite's NOCASE.
+fn sibling_key(
+    name: &str,
+    description: &Option<String>,
+    kind: Kind,
+) -> (String, Option<String>, Kind) {
+    (name.to_ascii_lowercase(), description.clone(), kind)
+}
+
+fn print_item_human(item: &ItemWithPath, duplicates: usize) -> Result<()> {
     println!("Name:        {}", item.name);
     println!(
         "Description: {}",
@@ -253,6 +301,10 @@ fn print_item_human(item: &ItemWithPath) -> Result<()> {
         }
     }
 
+    if duplicates > 1 {
+        println!("Duplicates:  {} here", duplicates);
+    }
+
     println!("Kind:        {}", item.kind);
     println!("Created:     {}", item.created_at);
     println!("Updated:     {}", item.updated_at);
@@ -261,8 +313,16 @@ fn print_item_human(item: &ItemWithPath) -> Result<()> {
 }
 
 fn print_items_human(items: &[ItemWithPath]) -> Result<()> {
-    for item in items {
-        println!("{}", item.path.join("/"));
+    let groups = group_duplicates(items, |item| {
+        (item.child_count == Some(0)).then(|| {
+            (
+                item.place_id,
+                sibling_key(&item.name, &item.description, item.kind),
+            )
+        })
+    });
+    for (item, count) in groups {
+        println!("{}", counted_name(&item.path.join("/"), count));
         if let Some(ref desc) = item.description {
             println!("  {}", desc);
         }
@@ -276,19 +336,31 @@ fn print_list_items_human(items: &[ListItem]) -> Result<()> {
         return Ok(());
     }
 
-    // Calculate column widths
-    let max_name = items.iter().map(|i| i.name.len()).max().unwrap_or(4).max(4);
-    let max_desc = items
+    let rows: Vec<(String, &ListItem)> = group_duplicates(items, |item| {
+        (item.child_count == 0).then(|| sibling_key(&item.name, &item.description, item.kind))
+    })
+    .into_iter()
+    .map(|(item, count)| (counted_name(&item.name, count), item))
+    .collect();
+
+    // Calculate column widths. Rust pads by characters, so count characters.
+    let max_name = rows
         .iter()
-        .map(|i| i.description.as_ref().map(|d| d.len()).unwrap_or(1))
+        .map(|(name, _)| name.chars().count())
+        .max()
+        .unwrap_or(4)
+        .max(4);
+    let max_desc = rows
+        .iter()
+        .map(|(_, i)| i.description.as_ref().map_or(1, |d| d.chars().count()))
         .max()
         .unwrap_or(11)
         .max(11);
 
     // Header
-    let max_kind = items
+    let max_kind = rows
         .iter()
-        .map(|i| i.kind.as_str().len())
+        .map(|(_, i)| i.kind.as_str().len())
         .max()
         .unwrap_or(4)
         .max(4);
@@ -304,7 +376,7 @@ fn print_list_items_human(items: &[ListItem]) -> Result<()> {
     );
 
     // Rows
-    for item in items {
+    for (name, item) in rows {
         let desc = item.description.as_deref().unwrap_or("-");
         let items_str = if item.child_count > 0 {
             item.child_count.to_string()
@@ -313,7 +385,7 @@ fn print_list_items_human(items: &[ListItem]) -> Result<()> {
         };
         println!(
             "{:<width_name$} {:<width_kind$} {:<width_desc$} {}",
-            item.name,
+            name,
             item.kind.as_str(),
             desc,
             items_str,
@@ -414,11 +486,18 @@ impl TreeChars {
 }
 
 fn print_tree_items_human(items: &[TreeItem]) -> Result<()> {
-    fn print_item_line(item: &TreeItem) {
+    /// One level of the tree, with duplicates folded together.
+    fn siblings(items: &[TreeItem]) -> Vec<(&TreeItem, usize)> {
+        group_duplicates(items, |item| {
+            (item.child_count == 0).then(|| sibling_key(&item.name, &item.description, item.kind))
+        })
+    }
+
+    fn print_item_line(item: &TreeItem, count: usize) {
         if let Some(glyph) = item.kind.glyph() {
             print!("{} ", glyph);
         }
-        print!("{}", item.name);
+        print!("{}", counted_name(&item.name, count));
         if let Some(ref desc) = item.description {
             print!(" ({})", desc);
         }
@@ -428,11 +507,17 @@ fn print_tree_items_human(items: &[TreeItem]) -> Result<()> {
         println!();
     }
 
-    fn print_subtree(item: &TreeItem, prefix: &str, is_last: bool, chars: &TreeChars) {
+    fn print_subtree(
+        item: &TreeItem,
+        count: usize,
+        prefix: &str,
+        is_last: bool,
+        chars: &TreeChars,
+    ) {
         let connector = if is_last { &chars.last } else { &chars.branch };
 
         print!("{}{}", prefix, connector);
-        print_item_line(item);
+        print_item_line(item, count);
 
         let child_prefix = format!(
             "{}{}",
@@ -444,21 +529,23 @@ fn print_tree_items_human(items: &[TreeItem]) -> Result<()> {
             }
         );
 
-        let child_count = item.children.len();
-        for (i, child) in item.children.iter().enumerate() {
-            print_subtree(child, &child_prefix, i == child_count - 1, chars);
+        let children = siblings(&item.children);
+        let rows = children.len();
+        for (i, (child, count)) in children.into_iter().enumerate() {
+            print_subtree(child, count, &child_prefix, i == rows - 1, chars);
         }
     }
 
     let chars = TreeChars::current();
-    for item in items {
+    for (item, count) in siblings(items) {
         // Root items: print without prefix
-        print_item_line(item);
+        print_item_line(item, count);
 
         // Print children with tree structure
-        let child_count = item.children.len();
-        for (i, child) in item.children.iter().enumerate() {
-            print_subtree(child, "", i == child_count - 1, &chars);
+        let children = siblings(&item.children);
+        let rows = children.len();
+        for (i, (child, count)) in children.into_iter().enumerate() {
+            print_subtree(child, count, "", i == rows - 1, &chars);
         }
     }
 

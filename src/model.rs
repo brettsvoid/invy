@@ -59,6 +59,14 @@ impl GlyphSet {
         }
     }
 
+    /// Joins a name to how many duplicates it stands for, as in `hdmi cable ×3`.
+    pub fn times(self) -> &'static str {
+        match self {
+            GlyphSet::Ascii => "x",
+            _ => "×",
+        }
+    }
+
     /// The pieces this set draws tree branches from.
     pub fn tree(self) -> TreePieces {
         match self {
@@ -95,7 +103,7 @@ pub fn glyph_set() -> GlyphSet {
 ///
 /// The first three describe a place. `Thing` is the default, and covers
 /// everything you put in one.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
     /// A room, a loft, a shed, a garden
@@ -207,6 +215,10 @@ pub struct Item {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ItemWithPath {
     pub id: i64,
+    /// Kept out of the output, which has `path`. Grouping duplicates needs it,
+    /// because two different places can share a path.
+    #[serde(skip)]
+    pub place_id: Option<i64>,
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -223,6 +235,7 @@ impl Item {
     pub fn with_path(self, path: Vec<String>, child_count: Option<i64>) -> ItemWithPath {
         ItemWithPath {
             id: self.id,
+            place_id: self.place_id,
             name: self.name,
             description: self.description,
             path,
@@ -281,7 +294,7 @@ mod tests {
         use unicode_width::UnicodeWidthStr;
 
         for set in [GlyphSet::Unicode, GlyphSet::Nerd, GlyphSet::Ascii] {
-            for marker in [set.expanded(), set.collapsed(), set.leaf()] {
+            for marker in [set.expanded(), set.collapsed(), set.leaf(), set.times()] {
                 assert_eq!(marker.width(), 1, "{set:?} marker {marker:?}");
             }
 

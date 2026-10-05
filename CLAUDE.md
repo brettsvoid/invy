@@ -49,7 +49,7 @@ Single `items` table with self-referential `place_id` foreign key. ON DELETE SET
 
 Each item also has a `kind`: `room`, `furniture`, `box` or `thing` (the default). The set is a fixed enum in `model.rs`, not user-extensible. It is descriptive only — nothing restricts what can go where.
 
-`GlyphSet` (`nerd` by default, `unicode`, `ascii`) decides kind icons, fold markers and tree branches. It is chosen by `--glyphs` / `INVY_GLYPHS` and stored in a `OnceLock` in `model.rs`. `Kind::glyph()` reads it; `Kind::glyph_in(set)` is the pure version to test against.
+`GlyphSet` (`nerd` by default, `unicode`, `ascii`) decides kind icons, fold markers, tree branches and the `×` in duplicate counts. It is chosen by `--glyphs` / `INVY_GLYPHS` and stored in a `OnceLock` in `model.rs`. `Kind::glyph()` reads it; `Kind::glyph_in(set)` is the pure version to test against.
 
 Every glyph must be one display column, or the TUI tree stops lining up. `every_glyph_occupies_a_single_column` in `model.rs` enforces this — keep it passing when adding a glyph.
 

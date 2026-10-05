@@ -211,3 +211,62 @@ fn list_recursive_alphabetical_order() {
     assert!(alpha_pos < middle_pos, "alpha should come before middle");
     assert!(middle_pos < zebra_pos, "middle should come before zebra");
 }
+
+/// Test: duplicates share one row, and an item that differs gets its own
+#[test]
+fn list_groups_duplicates() {
+    let env = common::TestEnv::new();
+    env.run(&["add", "hdmi cable", "--in", "storage", "--count", "3"])
+        .success();
+    env.run(&["add", "hdmi cable", "--in", "storage", "--desc", "2m"])
+        .success();
+
+    env.run(&["list", "storage"])
+        .success()
+        .stdout(predicate::str::contains("hdmi cable ×3"))
+        .stdout(predicate::str::contains("2m"))
+        .stdout(predicate::function(|out: &str| out.lines().count() == 3));
+}
+
+/// Test: JSON keeps one object per item
+#[test]
+fn list_json_does_not_group() {
+    let env = common::TestEnv::new();
+    env.run(&["add", "hdmi cable", "--in", "storage", "--count", "3"])
+        .success();
+
+    env.run(&["list", "storage", "--json"])
+        .success()
+        .stdout(predicate::function(|out: &str| {
+            out.matches(r#""id":"#).count() == 3
+        }));
+}
+
+/// Test: the recursive tree groups duplicates too, with an ASCII x for ascii
+#[test]
+fn list_recursive_groups_duplicates() {
+    let env = common::TestEnv::new();
+    env.run(&["add", "hdmi cable", "--in", "storage", "--count", "2"])
+        .success();
+
+    env.run(&["list", "--recursive", "--glyphs", "unicode"])
+        .success()
+        .stdout(predicate::str::contains("└── hdmi cable ×2"));
+    env.run(&["list", "--recursive", "--glyphs", "ascii"])
+        .success()
+        .stdout(predicate::str::contains("`-- hdmi cable x2"));
+}
+
+/// Test: two same-named places are not grouped once one holds something
+#[test]
+fn list_does_not_group_a_place_that_holds_things() {
+    let env = common::TestEnv::new();
+    env.run(&["add", "box", "--in", "wardrobe", "--count", "2"])
+        .success();
+    env.run(&["add", "phone", "--in", "@2"]).success();
+
+    env.run(&["list", "wardrobe"])
+        .success()
+        .stdout(predicate::str::contains("×").not())
+        .stdout(predicate::function(|out: &str| out.lines().count() == 3));
+}

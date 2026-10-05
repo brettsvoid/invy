@@ -119,3 +119,35 @@ fn find_with_csv_output() {
         .success()
         .stdout(predicate::str::contains("id,name,description,kind,path"));
 }
+
+/// Test: duplicates share one result
+#[test]
+fn find_groups_duplicates() {
+    let env = common::TestEnv::new();
+    env.run(&["add", "hdmi cable", "--in", "storage", "--count", "2"])
+        .success();
+
+    env.run(&["find", "hdmi"])
+        .success()
+        .stdout(predicate::str::contains("storage/hdmi cable ×2"))
+        .stdout(predicate::function(|out: &str| {
+            out.matches("hdmi cable").count() == 1
+        }));
+}
+
+/// Test: items with the same path in different places are not grouped
+#[test]
+fn find_does_not_group_items_in_different_places() {
+    let env = common::TestEnv::new();
+    env.run(&["add", "box", "--in", "wardrobe", "--count", "2"])
+        .success();
+    env.run(&["add", "phone", "--in", "@2"]).success();
+    env.run(&["add", "phone", "--in", "@3"]).success();
+
+    env.run(&["find", "phone"])
+        .success()
+        .stdout(predicate::str::contains("×").not())
+        .stdout(predicate::function(|out: &str| {
+            out.matches("wardrobe/box/phone").count() == 2
+        }));
+}

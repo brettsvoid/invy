@@ -35,9 +35,10 @@ pub fn run(item_ref: &str, json: bool, csv: bool, db_path: Option<&Path>) -> Res
         }
     };
 
+    let duplicates = inventory::duplicate_count(&conn, &item)?;
     let path = db::get_item_path(&conn, item.id)?;
     let child_count = db::count_children(&conn, item.id)?;
     let item_with_path = item.with_path(path, Some(child_count));
 
-    output::print_item(&item_with_path, format)
+    output::print_item(&item_with_path, duplicates, format)
 }

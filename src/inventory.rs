@@ -117,6 +117,20 @@ fn same_apart_from_id(a: &Item, b: &Item) -> bool {
         && a.kind == b.kind
 }
 
+/// How many duplicates share the item's place, the item included.
+pub fn duplicate_count(conn: &Connection, item: &Item) -> Result<usize> {
+    if db::count_children(conn, item.id)? > 0 {
+        return Ok(1);
+    }
+    let mut count = 0;
+    for other in db::find_items_named_in(conn, &item.name, item.place_id)? {
+        if same_apart_from_id(item, &other) && db::count_children(conn, other.id)? == 0 {
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
 /// Refuse a reference that matches items that are not duplicates.
 fn ensure_interchangeable(conn: &Connection, reference: &str, matches: &[Item]) -> Result<()> {
     let [first, ..] = matches else {

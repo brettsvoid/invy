@@ -174,3 +174,18 @@ fn show_ignores_case() {
     env.run(&["show", "hdmi cable"]).success();
     env.run(&["show", "cable storage/hdmi CABLE"]).success();
 }
+
+/// Test: show says how many duplicates share the place
+#[test]
+fn show_counts_duplicates() {
+    let env = common::TestEnv::new();
+    env.run(&["add", "hdmi cable", "--count", "3"]).success();
+    env.add("hammer").success();
+
+    env.run(&["show", "hdmi cable"])
+        .success()
+        .stdout(predicate::str::contains("Duplicates:  3 here"));
+    env.run(&["show", "hammer"])
+        .success()
+        .stdout(predicate::str::contains("Duplicates").not());
+}

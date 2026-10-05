@@ -40,7 +40,9 @@ pub fn run(
         .into_iter()
         .map(|item| {
             let path = db::get_item_path(&conn, item.id).unwrap_or_default();
-            item.with_path(path, None)
+            // Human output needs the count to tell duplicates from places.
+            let child_count = db::count_children(&conn, item.id).unwrap_or(0);
+            item.with_path(path, Some(child_count))
         })
         .collect();
 
