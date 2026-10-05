@@ -45,6 +45,7 @@ pub fn run(
             // List root items
             db::list_root_items(&conn)?
         };
+        let at_root = place.is_none();
 
         // Convert to ListItem with child counts
         let list_items: Vec<_> = items
@@ -55,7 +56,11 @@ pub fn run(
             })
             .collect();
 
-        output::print_list_items(&list_items, format)
+        if at_root {
+            output::print_root_items(&list_items, format)
+        } else {
+            output::print_list_items(&list_items, format)
+        }
     }
 }
 

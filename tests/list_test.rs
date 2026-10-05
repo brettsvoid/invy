@@ -270,3 +270,60 @@ fn list_does_not_group_a_place_that_holds_things() {
         .stdout(predicate::str::contains("×").not())
         .stdout(predicate::function(|out: &str| out.lines().count() == 3));
 }
+
+/// Test: things at root get their own Unsorted section, after the places
+#[test]
+fn list_puts_unsorted_things_in_their_own_section() {
+    let env = common::TestEnv::new();
+    env.run(&["add", "garage", "--kind", "room"]).success();
+    env.add("hammer").success();
+    env.add("tape").success();
+
+    env.run(&["list"])
+        .success()
+        .stdout(predicate::str::contains("Unsorted (2)"))
+        .stdout(predicate::function(|out: &str| {
+            let garage = out.find("garage");
+            let heading = out.find("Unsorted");
+            let hammer = out.find("hammer");
+            matches!((garage, heading, hammer), (Some(g), Some(u), Some(h)) if g < u && u < h)
+        }));
+}
+
+/// Test: no Unsorted section when every root item is a place
+#[test]
+fn list_without_unsorted_things_has_no_section() {
+    let env = common::TestEnv::new();
+    env.run(&["add", "garage", "--kind", "room"]).success();
+
+    env.run(&["list"])
+        .success()
+        .stdout(predicate::str::contains("Unsorted").not());
+}
+
+/// Test: JSON keeps one flat list of root items
+#[test]
+fn list_json_has_no_unsorted_section() {
+    let env = common::TestEnv::new();
+    env.run(&["add", "garage", "--kind", "room"]).success();
+    env.add("hammer").success();
+
+    env.run(&["list", "--json"])
+        .success()
+        .stdout(predicate::str::contains("Unsorted").not())
+        .stdout(predicate::function(|out: &str| {
+            out.matches(r#""id":"#).count() == 2
+        }));
+}
+
+/// Test: the recursive tree puts unsorted things under a heading too
+#[test]
+fn list_recursive_puts_unsorted_things_under_a_heading() {
+    let env = common::TestEnv::new();
+    env.run(&["add", "garage", "--kind", "room"]).success();
+    env.add("hammer").success();
+
+    env.run(&["list", "--recursive", "--glyphs", "unicode"])
+        .success()
+        .stdout(predicate::str::contains("Unsorted (1)\n└── hammer"));
+}

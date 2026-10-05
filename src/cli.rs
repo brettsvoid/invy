@@ -13,8 +13,9 @@ use std::path::PathBuf;
 #[command(name = "invy")]
 #[command(version, about, long_about = None)]
 pub struct Cli {
+    /// What to do. With none, invy opens the TUI
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Option<Commands>,
 
     /// Output as JSON
     #[arg(short, long, global = true)]
@@ -146,4 +147,18 @@ pub enum Commands {
         #[arg(short, long, value_enum)]
         kind: Option<Kind>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_subcommand_is_allowed() {
+        assert!(Cli::try_parse_from(["invy"]).unwrap().command.is_none());
+        assert!(Cli::try_parse_from(["invy", "--db", "x.db"])
+            .unwrap()
+            .command
+            .is_none());
+    }
 }

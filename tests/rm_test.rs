@@ -44,9 +44,9 @@ fn remove_empty_place() {
         .stderr(predicate::str::contains("not found"));
 }
 
-/// Test: remove non-empty place → orphans contents to top-level
+/// Test: removing a place leaves its contents at root, unsorted
 #[test]
-fn remove_place_orphans_contents() {
+fn remove_place_leaves_contents_unsorted() {
     let env = common::TestEnv::new();
 
     // Setup place with items
@@ -58,7 +58,7 @@ fn remove_place_orphans_contents() {
     env.run(&["rm", "toolbox"])
         .success()
         .stdout(predicate::str::contains("Removed"))
-        .stdout(predicate::str::contains("Orphaned"))
+        .stdout(predicate::str::contains("Now unsorted:"))
         .stdout(predicate::str::contains("hammer"))
         .stdout(predicate::str::contains("screwdriver"));
 
@@ -84,9 +84,9 @@ fn remove_nonexistent_item_fails() {
         .stderr(predicate::str::contains("not found"));
 }
 
-/// Test: remove nested place orphans to root
+/// Test: removing a place in the middle of the tree sends its contents to root
 #[test]
-fn remove_nested_place_orphans_to_root() {
+fn remove_nested_place_sends_contents_to_root() {
     let env = common::TestEnv::new();
 
     // Setup: garage -> toolbox -> hammer
@@ -97,7 +97,7 @@ fn remove_nested_place_orphans_to_root() {
     // Remove toolbox (middle of hierarchy)
     env.run(&["rm", "toolbox"])
         .success()
-        .stdout(predicate::str::contains("Orphaned"));
+        .stdout(predicate::str::contains("Now unsorted:"));
 
     // Hammer should now be at root, not in garage
     env.run(&["list"])
@@ -139,4 +139,19 @@ fn remove_all_duplicates() {
     env.run(&["list", "--csv"])
         .success()
         .stdout(predicate::function(|out: &str| out.lines().count() == 1));
+}
+
+/// Test: a place inside a removed place goes to root as a place, not unsorted
+#[test]
+fn remove_place_says_which_contents_are_places() {
+    let env = common::TestEnv::new();
+    env.run(&["add", "garage", "--kind", "room"]).success();
+    env.run(&["add", "toolbox", "--in", "garage", "--kind", "box"])
+        .success();
+    env.add_into("bike", "garage").success();
+
+    env.run(&["rm", "garage"])
+        .success()
+        .stdout(predicate::str::contains("Now unsorted:\n  - bike"))
+        .stdout(predicate::str::contains("Now at root:\n  - toolbox"));
 }

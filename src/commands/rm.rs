@@ -28,7 +28,6 @@ pub fn run(item_ref: &str, all: bool, json: bool, csv: bool, db_path: Option<&Pa
 
     // Only a single place can hold anything, since duplicates hold nothing.
     let children = db::list_items_in_place(&conn, items[0].id)?;
-    let orphaned_names: Vec<String> = children.iter().map(|c| c.name.clone()).collect();
 
     // The ON DELETE SET NULL will automatically orphan children to root
     // when we delete the place
@@ -38,5 +37,5 @@ pub fn run(item_ref: &str, all: bool, json: bool, csv: bool, db_path: Option<&Pa
     }
     tx.commit()?;
 
-    output::print_removed(&item_name, items.len(), matched, &orphaned_names, format)
+    output::print_removed(&item_name, items.len(), matched, &children, format)
 }

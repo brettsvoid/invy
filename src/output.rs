@@ -7,7 +7,7 @@ use serde::Serialize;
 use std::hash::Hash;
 use std::io;
 
-use crate::model::{glyph_set, group_duplicates, ItemWithPath, Kind, ListItem, TreeItem};
+use crate::model::{glyph_set, group_duplicates, Item, ItemWithPath, Kind, ListItem, TreeItem};
 
 /// Output format selection.
 #[derive(Debug, Clone, Copy)]
@@ -48,6 +48,28 @@ pub fn print_items(items: &[ItemWithPath], format: Format) -> Result<()> {
         Format::Json => print_json(items),
         Format::Csv => print_items_csv(items),
     }
+}
+
+/// Output the root items. Human output lists the places, then the things at
+/// root under an Unsorted heading. JSON and CSV keep one flat list.
+pub fn print_root_items(items: &[ListItem], format: Format) -> Result<()> {
+    let Format::Human = format else {
+        return print_list_items(items, format);
+    };
+    let (unsorted, places): (Vec<ListItem>, Vec<ListItem>) = items
+        .iter()
+        .cloned()
+        .partition(|item| item.kind == Kind::Thing);
+
+    print_list_items_human(&places)?;
+    if !unsorted.is_empty() {
+        if !places.is_empty() {
+            println!();
+        }
+        println!("Unsorted ({})", unsorted.len());
+        print_list_items_human(&unsorted)?;
+    }
+    Ok(())
 }
 
 /// Output list items with child counts (for list command).
@@ -152,20 +174,28 @@ pub fn print_moved(
 }
 
 /// Print removed items message.
+///
+/// `orphaned` is what the removed place held, which is now at root. Things
+/// there are unsorted. Places may stay at root.
 pub fn print_removed(
     name: &str,
     removed: usize,
     matched: usize,
-    orphaned: &[String],
+    orphaned: &[Item],
     format: Format,
 ) -> Result<()> {
+    let orphaned_names: Vec<String> = orphaned.iter().map(|item| item.name.clone()).collect();
     match format {
         Format::Human => {
             println!("Removed{}: {}", counted(removed, matched), name);
-            if !orphaned.is_empty() {
-                println!("Orphaned {} items to root:", orphaned.len());
-                for item_name in orphaned {
-                    println!("  - {}", item_name);
+            let (things, places): (Vec<&Item>, Vec<&Item>) =
+                orphaned.iter().partition(|item| item.kind == Kind::Thing);
+            for (heading, items) in [("Now unsorted:", things), ("Now at root:", places)] {
+                if !items.is_empty() {
+                    println!("{heading}");
+                    for item in items {
+                        println!("  - {}", item.name);
+                    }
                 }
             }
             Ok(())
@@ -180,12 +210,12 @@ pub fn print_removed(
             print_json(&RemovedOutput {
                 removed: name.to_string(),
                 count: removed,
-                orphaned: orphaned.to_vec(),
+                orphaned: orphaned_names,
             })
         }
         Format::Csv => {
             println!("removed,orphaned,count");
-            println!("{},{},{}", name, orphaned.join(";"), removed);
+            println!("{},{},{}", name, orphaned_names.join(";"), removed);
             Ok(())
         }
     }
@@ -519,7 +549,14 @@ fn print_tree_items_human(items: &[TreeItem]) -> Result<()> {
     }
 
     let chars = TreeChars::current();
-    for (item, count) in siblings(items) {
+    // Things at root are unsorted. They go under their own heading, after the
+    // places, as branches of it.
+    let (unsorted, places): (Vec<TreeItem>, Vec<TreeItem>) = items
+        .iter()
+        .cloned()
+        .partition(|item| item.kind == Kind::Thing);
+
+    for (item, count) in siblings(&places) {
         // Root items: print without prefix
         print_item_line(item, count);
 
@@ -528,6 +565,15 @@ fn print_tree_items_human(items: &[TreeItem]) -> Result<()> {
         let rows = children.len();
         for (i, (child, count)) in children.into_iter().enumerate() {
             print_subtree(child, count, "", i == rows - 1, &chars);
+        }
+    }
+
+    if !unsorted.is_empty() {
+        println!("Unsorted ({})", unsorted.len());
+        let rows = siblings(&unsorted);
+        let last = rows.len() - 1;
+        for (i, (item, count)) in rows.into_iter().enumerate() {
+            print_subtree(item, count, "", i == last, &chars);
         }
     }
 

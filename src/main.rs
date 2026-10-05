@@ -25,7 +25,12 @@ fn main() -> Result<()> {
     let db = cli.db.or(config.db);
     let db_path = db.as_deref();
 
-    match cli.command {
+    // With no subcommand, open the TUI.
+    let Some(command) = cli.command else {
+        return tui::run(db_path);
+    };
+
+    match command {
         Commands::Add {
             name,
             desc,

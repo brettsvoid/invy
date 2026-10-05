@@ -341,12 +341,19 @@ List items, optionally within a specific place.
 3. Shows item name, description, and child count if place
 4. Duplicates share one row, with a count after the name. A place's child
    count still counts every item
+5. At root, human output lists the places first, then the unsorted things
+   (things at root) under an `Unsorted (N)` heading. `--recursive` does the
+   same, with the unsorted things as branches of the heading. JSON and CSV
+   keep one flat list
 
 #### Output (human)
 ```
 NAME          KIND       DESCRIPTION      ITEMS
 toolbox       box        red metal box    3
 workbench     furniture  -                0
+
+Unsorted (4)
+NAME          KIND       DESCRIPTION      ITEMS
 hammer        thing      claw hammer      -
 hdmi cable ×3 thing      -                -
 ```
@@ -362,6 +369,9 @@ With `--recursive`, each place carries its kind glyph:
     ├── hdmi cable ×3
     └── ▣ toolbox [1]
         └── hammer (16oz claw)
+Unsorted (2)
+├── printer ink
+└── tape
 ```
 
 #### Output (JSON)
@@ -590,18 +600,20 @@ Remove an item from the inventory.
 
 #### Behavior
 1. Removes the specified item
-2. If item is a place with children: **orphan children to root level**
-3. Orphaned items retain their names and descriptions
+2. If item is a place with children, they move to root. Things there become
+   unsorted. Rooms, furniture and boxes stay places at root
+3. They keep their names and descriptions
 4. When `item` matches several duplicates, one is removed. `--all` removes
    them all
 
 #### Output (human)
 ```
-Removed: toolbox
-Orphaned 3 items to root:
+Removed: garage
+Now unsorted:
+  - bike
   - hammer
-  - screwdriver
-  - wrench
+Now at root:
+  - toolbox
 ```
 
 One of several duplicates:
@@ -631,7 +643,7 @@ toolbox,hammer;screwdriver;wrench,1
 # Remove item
 invy rm hammer
 
-# Remove place (orphans contents)
+# Remove place (its contents move to root)
 invy rm toolbox
 ```
 
@@ -696,6 +708,7 @@ invy edit garage --kind room
 ### `invy tui`
 
 Browse and edit the inventory in an interactive terminal UI. Alias: `invy ui`.
+Plain `invy`, with no command, opens it too.
 
 #### Arguments
 None. `--db` applies. `--json` and `--csv` are ignored.
@@ -762,7 +775,7 @@ vim's.
 3. Tree keys do nothing while a search is active
 4. A failed change leaves the database untouched and reports the reason in the
    bottom bar
-5. Removing a place orphans its children to root, the same as `rm`
+5. Removing a place moves its contents to root, the same as `rm`
 6. A key pressed on a duplicates row acts on one of them, the oldest, the same
    as the CLI without `--all`. Marking the row is how to act on all of them.
    A change that makes one differ, such as a new description, splits it onto
@@ -795,6 +808,9 @@ vim's.
 #### Examples
 ```bash
 # Browse the default database
+invy
+
+# The same, by name
 invy tui
 
 # Browse another database
