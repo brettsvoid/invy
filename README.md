@@ -165,7 +165,7 @@ the top. The right pane shows the selected item. The keys follow
 | `l` `h`           | Expand, or collapse and go to the place              |
 | `E` `C`           | Expand all, collapse all                             |
 | `/`               | Search names and descriptions, as `find` does        |
-| `Space`           | Mark or unmark the row, then move down               |
+| `Space`           | Mark or unmark the row                               |
 | `v`               | Visual mode: mark every row the cursor passes        |
 | `x` `X`           | Cut the marked items, or cancel the cut              |
 | `p`               | Paste the cut items into the selection               |

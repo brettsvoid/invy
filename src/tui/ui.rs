@@ -376,7 +376,7 @@ fn draw_help(frame: &mut Frame) {
         ("⏎", "expand or collapse"),
         ("l / h", "expand, or collapse and go to parent"),
         ("E / C", "expand all, collapse all"),
-        ("Space", "mark or unmark, then move down"),
+        ("Space", "mark or unmark the row"),
         ("v", "visual mode: mark rows as you move"),
         ("/", "search by name or description"),
         ("Esc", "leave visual, clear marks, clear search"),

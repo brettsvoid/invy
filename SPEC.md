@@ -742,7 +742,7 @@ giving an unsorted thing a place kind with `t` takes it out of Unsorted.
 | `l` `→` | Expand, or step into the first child |
 | `h` `←` | Collapse, or select the place |
 | `E` `C` | Expand all, collapse all |
-| `Space` | Mark or unmark the row, every duplicate on it, then move down |
+| `Space` | Mark or unmark the row, every duplicate on it. The cursor stays |
 | `v` | Visual mode: every row between where it started and the cursor is marked |
 | `/` | Search by name and description, as `find` does |
 | `a` | Add an item beside the selection, in the same place |

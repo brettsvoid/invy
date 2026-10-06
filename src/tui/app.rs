@@ -868,10 +868,8 @@ impl App {
             KeyCode::Char('E') => self.expand_all(),
             KeyCode::Char('C') => self.collapse_all(),
 
-            KeyCode::Char(' ') => {
-                self.toggle_mark();
-                self.move_selection(1);
-            }
+            // Unlike yazi, the cursor stays on the row.
+            KeyCode::Char(' ') => self.toggle_mark(),
             KeyCode::Char('v') => {
                 if !self.nodes.is_empty() {
                     self.visual_anchor = Some(self.selected);
@@ -1575,13 +1573,13 @@ mod tests {
     }
 
     #[test]
-    fn space_marks_the_row_and_moves_down() {
+    fn space_marks_the_row_and_stays_on_it() {
         let (mut app, _dir) = app();
 
         mark(&mut app, "bike");
 
         assert!(app.marks.contains(&id_of(&app, "bike")));
-        assert_eq!(app.selected_node().unwrap().name, "toolbox");
+        assert_eq!(app.selected_node().unwrap().name, "bike");
     }
 
     #[test]
