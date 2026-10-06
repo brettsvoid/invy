@@ -6,7 +6,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::Frame;
 
-use super::app::{App, Mode, StatusKind};
+use super::app::{App, Mode, PreviewKind, StatusKind};
 use crate::model::glyph_set;
 
 const ACCENT: Color = Color::Cyan;
@@ -316,12 +316,18 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_prompt(frame: &mut Frame, prompt: &super::app::Prompt) {
-    // Wide enough for the title and the hint, which can name a long path.
+    // Wide enough for the title, the hint and the preview, which can name a
+    // long path.
+    let preview_width = prompt
+        .preview
+        .as_ref()
+        .map_or(0, |(text, _)| text.chars().count());
     let wanted = prompt
         .title
         .chars()
         .count()
         .max(prompt.hint.chars().count())
+        .max(preview_width)
         + 4;
     let area = centred(frame.area(), wanted.max(60) as u16, 5);
     let block = Block::bordered()
@@ -332,8 +338,27 @@ fn draw_prompt(frame: &mut Frame, prompt: &super::app::Prompt) {
     frame.render_widget(Clear, area);
     frame.render_widget(block, area);
 
-    let [input_area, hint_area] =
-        Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(inner);
+    let [input_area, second, third] = Layout::vertical([Constraint::Length(1); 3]).areas(inner);
+
+    // The move prompt says what Enter will do, between the input and the hint.
+    let hint_area = match &prompt.preview {
+        Some((text, kind)) => {
+            let colour = match kind {
+                PreviewKind::Existing => Color::Green,
+                PreviewKind::New => Color::Yellow,
+                PreviewKind::Error => Color::Red,
+            };
+            frame.render_widget(
+                Paragraph::new(Line::from(Span::styled(
+                    text.clone(),
+                    Style::default().fg(colour),
+                ))),
+                second,
+            );
+            third
+        }
+        None => second,
+    };
 
     frame.render_widget(Paragraph::new(prompt.input.value()), input_area);
     frame.render_widget(

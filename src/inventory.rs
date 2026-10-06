@@ -76,34 +76,75 @@ pub fn select(conn: &Connection, reference: &str, all: bool) -> Result<(Vec<Item
     Ok((matches, matched))
 }
 
-/// Turn a destination as typed into a place id, creating the place if needed.
+/// Where a destination as typed would put things.
+pub enum Destination {
+    Root,
+    Existing(Item),
+    /// Places to create: the first inside `parent`, or at root when it is
+    /// `None`, and each next one inside the one before.
+    New {
+        parent: Option<i64>,
+        names: Vec<String>,
+    },
+}
+
+/// Work out where a destination as typed would put things, changing nothing.
 ///
-/// `/`, `root` and an empty string all mean root. An `@id` must exist: it is
-/// never taken as the name of a new place.
-pub fn resolve_destination(conn: &Connection, reference: &str) -> Result<Option<i64>> {
+/// `/`, `root` and an empty string all mean root. A name or path that exists
+/// is that place. Otherwise the path is walked from root, keeping the places
+/// that exist, and the rest are new. A bare name is new at root. An `@id`
+/// must exist: it is never taken as the name of a new place.
+pub fn plan_destination(conn: &Connection, reference: &str) -> Result<Destination> {
     let reference = reference.trim();
     if reference.is_empty() || reference == "/" || reference == "root" {
-        return Ok(None);
+        return Ok(Destination::Root);
     }
     if let Some(place) = resolve(conn, reference)? {
-        return Ok(Some(place.id));
+        return Ok(Destination::Existing(place));
     }
     if parse_id(reference).is_some() {
         return Err(anyhow!("item '{reference}' not found"));
     }
 
-    // Nothing matched, so walk the path from root, keeping the places that
-    // exist and creating the rest. A bare name is created at root.
-    let mut place_id = None;
-    for part in reference.split('/').filter(|part| !part.trim().is_empty()) {
-        let existing = db::find_items_named_in(conn, part.trim(), place_id)?;
+    let mut parent = None;
+    let mut parts = reference.split('/').filter(|part| !part.trim().is_empty());
+    while let Some(part) = parts.next() {
+        let existing = db::find_items_named_in(conn, part.trim(), parent)?;
         ensure_interchangeable(conn, part.trim(), &existing)?;
-        place_id = Some(match existing.into_iter().next() {
-            Some(place) => place.id,
-            None => db::insert_item(conn, clean_name(part)?, None, place_id, Kind::Thing)?.id,
-        });
+        match existing.into_iter().next() {
+            Some(place) => parent = Some(place.id),
+            None => {
+                let names = std::iter::once(part)
+                    .chain(parts)
+                    .map(|name| clean_name(name).map(str::to_string))
+                    .collect::<Result<_>>()?;
+                return Ok(Destination::New { parent, names });
+            }
+        }
     }
-    Ok(place_id)
+
+    // Every part of the path exists, so resolve would have found it.
+    match parent {
+        Some(id) => db::get_item_by_id(conn, id)?
+            .map(Destination::Existing)
+            .ok_or_else(|| anyhow!("item '{reference}' not found")),
+        None => Ok(Destination::Root),
+    }
+}
+
+/// Turn a destination as typed into a place id, creating the place if needed.
+/// See [`plan_destination`] for what it may mean.
+pub fn resolve_destination(conn: &Connection, reference: &str) -> Result<Option<i64>> {
+    match plan_destination(conn, reference)? {
+        Destination::Root => Ok(None),
+        Destination::Existing(place) => Ok(Some(place.id)),
+        Destination::New { mut parent, names } => {
+            for name in names {
+                parent = Some(db::insert_item(conn, &name, None, parent, Kind::Thing)?.id);
+            }
+            Ok(parent)
+        }
+    }
 }
 
 /// Whether two items are duplicates, leaving aside whether they hold anything.

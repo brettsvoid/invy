@@ -756,7 +756,7 @@ giving an unsorted thing a place kind with `t` takes it out of Unsorted.
 | `x` | Cut the targets, to paste somewhere else |
 | `X` | Cancel the cut |
 | `p` | Paste the cut items into the selection |
-| `m` | Move the targets to a place you type |
+| `m` | Move the targets to a place you type. `Tab` and `Shift-Tab` complete it |
 | `d` `Del` | Remove the targets, after a confirmation |
 | `t` `T` | Next and previous kind. `k` is already "move up" |
 | `R` | Reload from the database |
@@ -796,7 +796,18 @@ vim's.
     fix. A name already in the place adds a duplicate, and the bar says how
     many there now are
 12. `+` and `-` work on items that hold nothing, and ignore the marks
-13. A place's "Changed" time is the latest update of anything inside it, at
+13. The move prompt says under the input what `Enter` will do: `→ den/shelf`
+    for a place that exists, `→ root`, `→ new place 'shed' at root` in
+    yellow for one it will create, or in red why it will be refused. It uses
+    the same plan as the move itself, so the two always agree
+14. In the move prompt, `Tab` fills in the next place whose path starts with
+    what was typed, or whose last part does when there is no `/`. `Shift-Tab`
+    goes back. Only places are offered: items that hold something, and rooms,
+    furniture and boxes. The items being moved, and what is inside them, are
+    never offered
+15. A refused change in any prompt keeps the prompt open with what was typed,
+    so it can be fixed
+16. A place's "Changed" time is the latest update of anything inside it, at
     any depth. It is worked out each time, not stored. A move out of a place
     does not count
 

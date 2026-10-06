@@ -169,7 +169,7 @@ the top. The right pane shows the selected item. The keys follow
 | `v`               | Visual mode: mark every row the cursor passes        |
 | `x` `X`           | Cut the marked items, or cancel the cut              |
 | `p`               | Paste the cut items into the selection               |
-| `m`               | Move the marked items to a place you type            |
+| `m`               | Move the marked items to a place you type. `Tab` completes it |
 | `d` `Del`         | Remove the marked items (asks first)                 |
 | `a` `i` `A`       | Add beside the selection, inside it, at root         |
 | `+` `-`           | Add or remove a duplicate                            |
@@ -185,6 +185,11 @@ With nothing marked, `x`, `m` and `d` act on the item under the cursor. On a
 
 The add prompt stays open, so you can type a box's contents one name after
 another. An empty line or `Esc` closes it.
+
+The move prompt says under what you type where `Enter` will put things:
+`→ den/shelf`, or `→ new place 'shelf' at root` in yellow when the place does
+not exist yet and would be created. `Tab` and `Shift-Tab` cycle through the
+places that match, so you rarely need to type a whole path.
 
 Moving a box of cables into new storage looks like this: `/cable` `⏎` to find
 them, `v` `G` `Esc` to mark them all, then `Space` on any to leave out, `x` to

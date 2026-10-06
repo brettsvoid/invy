@@ -8,7 +8,7 @@ use std::path::Path;
 
 use super::input::TextInput;
 use crate::db;
-use crate::inventory;
+use crate::inventory::{self, Destination};
 use crate::model::{glyph_set, group_duplicates, Item, Kind};
 use crate::search;
 
@@ -53,6 +53,25 @@ pub struct Prompt {
     pub hint: String,
     pub input: TextInput,
     pub kind: PromptKind,
+    /// What Enter will do, shown under the input. Only the move prompt has one.
+    pub preview: Option<(String, PreviewKind)>,
+    /// Places Tab is cycling through, while it is.
+    completion: Option<Completion>,
+}
+
+/// How the move prompt's preview reads: a place that exists, one Enter will
+/// create, or a reason Enter will be refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreviewKind {
+    Existing,
+    New,
+    Error,
+}
+
+/// The place paths Tab offers, and which one the input shows.
+struct Completion {
+    matches: Vec<String>,
+    index: usize,
 }
 
 pub enum PromptKind {
@@ -928,7 +947,7 @@ impl App {
                     let title = format!("Move {}", self.describe_ids(&ids));
                     self.open_prompt(
                         title,
-                        "destination path, / for root  —  ⏎ confirm, Esc cancel",
+                        "destination path, / for root  —  Tab completes, ⏎ move, Esc cancel",
                         String::new(),
                         PromptKind::Move(ids),
                     );
@@ -1002,12 +1021,138 @@ impl App {
     }
 
     fn open_prompt(&mut self, title: String, hint: &str, value: String, kind: PromptKind) {
-        self.mode = Mode::Prompt(Prompt {
+        let mut prompt = Prompt {
             title,
             hint: hint.to_string(),
             input: TextInput::new(value),
             kind,
-        });
+            preview: None,
+            completion: None,
+        };
+        self.refresh_preview(&mut prompt);
+        self.mode = Mode::Prompt(prompt);
+    }
+
+    /// Work out the move prompt's preview again from what it holds.
+    fn refresh_preview(&self, prompt: &mut Prompt) {
+        if let PromptKind::Move(ids) = &prompt.kind {
+            prompt.preview = Some(self.move_preview(ids, prompt.input.value()));
+        }
+    }
+
+    /// Say what Enter will do with the items `ids` and the destination typed.
+    /// It uses the same plan the move itself does, so the two always agree.
+    fn move_preview(&self, ids: &[i64], input: &str) -> (String, PreviewKind) {
+        let into_itself = |place: i64| {
+            ids.iter().find(|id| self.is_within(place, **id)).map(|id| {
+                let name = self.items.get(id).map_or("item", |item| item.name.as_str());
+                (
+                    format!("cannot move '{name}' into itself or its descendants"),
+                    PreviewKind::Error,
+                )
+            })
+        };
+
+        match inventory::plan_destination(&self.conn, input) {
+            Ok(Destination::Root) => ("→ root".to_string(), PreviewKind::Existing),
+            Ok(Destination::Existing(place)) => into_itself(place.id).unwrap_or_else(|| {
+                let path = self.path_of(place.id).join("/");
+                (format!("→ {path}"), PreviewKind::Existing)
+            }),
+            Ok(Destination::New { parent, names }) => {
+                if let Some(refusal) = parent.and_then(into_itself) {
+                    return refusal;
+                }
+                let place = match parent {
+                    Some(id) => format!("in {}", self.path_of(id).join("/")),
+                    None => "at root".to_string(),
+                };
+                let names = names.join("/");
+                (format!("→ new place '{names}' {place}"), PreviewKind::New)
+            }
+            // An ambiguous name lists its matches on later lines. Enter shows
+            // them in the bottom bar.
+            Err(err) => {
+                let message = err.to_string();
+                let first = message.lines().next().unwrap_or_default();
+                (first.trim_end_matches(':').to_string(), PreviewKind::Error)
+            }
+        }
+    }
+
+    /// Whether `id` is `ancestor` or sits somewhere inside it.
+    fn is_within(&self, id: i64, ancestor: i64) -> bool {
+        let mut current = Some(id);
+        let mut guard = 0;
+        while let Some(item_id) = current {
+            if item_id == ancestor {
+                return true;
+            }
+            current = self.items.get(&item_id).and_then(|item| item.place_id);
+            guard += 1;
+            if guard > self.items.len() {
+                break;
+            }
+        }
+        false
+    }
+
+    /// Paths of the places a move could go, starting with what was typed.
+    ///
+    /// A place is an item that holds something, or a room, furniture or a
+    /// box. The items moving, and what is inside them, are left out. A path
+    /// matches when it starts with the input or, for input without a `/`,
+    /// when its last part does.
+    fn place_paths_matching(&self, input: &str, moving: &[i64]) -> Vec<String> {
+        let map = self.children_map();
+        let needle = input.to_lowercase();
+        let mut paths: Vec<String> = self
+            .items
+            .values()
+            .filter(|item| item.kind != Kind::Thing || map.contains_key(&Some(item.id)))
+            .filter(|item| !moving.iter().any(|id| self.is_within(item.id, *id)))
+            .map(|item| self.path_of(item.id).join("/"))
+            .filter(|path| {
+                let path = path.to_lowercase();
+                path.starts_with(&needle)
+                    || (!needle.contains('/')
+                        && path
+                            .rsplit('/')
+                            .next()
+                            .is_some_and(|last| last.starts_with(&needle)))
+            })
+            .collect();
+        paths.sort_by_key(|path| path.to_lowercase());
+        paths.dedup();
+        paths
+    }
+
+    /// Fill the move prompt with the next matching place, or the previous one.
+    fn complete(&self, prompt: &mut Prompt, forwards: bool) {
+        let PromptKind::Move(ids) = &prompt.kind else {
+            return;
+        };
+        let completion = match prompt.completion.take() {
+            Some(mut completion) => {
+                let count = completion.matches.len();
+                completion.index = if forwards {
+                    (completion.index + 1) % count
+                } else {
+                    (completion.index + count - 1) % count
+                };
+                completion
+            }
+            None => {
+                let matches = self.place_paths_matching(prompt.input.value(), ids);
+                if matches.is_empty() {
+                    return;
+                }
+                let index = if forwards { 0 } else { matches.len() - 1 };
+                Completion { matches, index }
+            }
+        };
+        prompt.input = TextInput::new(completion.matches[completion.index].clone());
+        prompt.completion = Some(completion);
     }
 
     fn clear_filter(&mut self) {
@@ -1060,13 +1205,18 @@ impl App {
             return;
         };
 
+        // Only Tab and Shift-Tab carry a completion on. Any other key ends it.
+        if !matches!(key.code, KeyCode::Tab | KeyCode::BackTab) {
+            prompt.completion = None;
+        }
+
         match key.code {
-            KeyCode::Esc => {}
+            KeyCode::Esc => return,
             KeyCode::Enter => {
                 let value = prompt.input.value().to_string();
                 if let PromptKind::Add { place, added } = prompt.kind {
                     // An empty line finishes. Otherwise add, and stay open for
-                    // the next name, keeping what was typed if it was refused.
+                    // the next name.
                     if value.trim().is_empty() {
                         return;
                     }
@@ -1083,44 +1233,36 @@ impl App {
                     self.mode = Mode::Prompt(prompt);
                     return;
                 }
-                let result = match prompt.kind {
+                let result = match &prompt.kind {
                     PromptKind::Add { .. } => unreachable!("handled above"),
-                    PromptKind::Rename(id) => self.rename_item(id, &value),
-                    PromptKind::Describe(id) => self.describe_item(id, &value),
-                    PromptKind::Move(ids) => self.move_items(&ids, &value),
+                    PromptKind::Rename(id) => self.rename_item(*id, &value),
+                    PromptKind::Describe(id) => self.describe_item(*id, &value),
+                    PromptKind::Move(ids) => {
+                        let ids = ids.clone();
+                        self.move_items(&ids, &value)
+                    }
                 };
+                // A refusal keeps the prompt and what was typed, to fix.
+                let refused = result.is_err();
                 self.apply(result);
+                if !refused {
+                    return;
+                }
             }
-            KeyCode::Backspace => {
-                prompt.input.backspace();
-                self.mode = Mode::Prompt(prompt);
-            }
-            KeyCode::Delete => {
-                prompt.input.delete();
-                self.mode = Mode::Prompt(prompt);
-            }
-            KeyCode::Left => {
-                prompt.input.left();
-                self.mode = Mode::Prompt(prompt);
-            }
-            KeyCode::Right => {
-                prompt.input.right();
-                self.mode = Mode::Prompt(prompt);
-            }
-            KeyCode::Home => {
-                prompt.input.home();
-                self.mode = Mode::Prompt(prompt);
-            }
-            KeyCode::End => {
-                prompt.input.end();
-                self.mode = Mode::Prompt(prompt);
-            }
-            KeyCode::Char(c) => {
-                prompt.input.insert(c);
-                self.mode = Mode::Prompt(prompt);
-            }
-            _ => self.mode = Mode::Prompt(prompt),
+            KeyCode::Tab => self.complete(&mut prompt, true),
+            KeyCode::BackTab => self.complete(&mut prompt, false),
+            KeyCode::Backspace => prompt.input.backspace(),
+            KeyCode::Delete => prompt.input.delete(),
+            KeyCode::Left => prompt.input.left(),
+            KeyCode::Right => prompt.input.right(),
+            KeyCode::Home => prompt.input.home(),
+            KeyCode::End => prompt.input.end(),
+            KeyCode::Char(c) => prompt.input.insert(c),
+            _ => {}
         }
+
+        self.refresh_preview(&mut prompt);
+        self.mode = Mode::Prompt(prompt);
     }
 
     fn on_key_confirm(&mut self, key: KeyEvent) {
@@ -2039,5 +2181,180 @@ mod tests {
             Some("2030-01-01 00:00:00")
         );
         assert_eq!(app.last_changed(id_of(&app, "bike")), None);
+    }
+
+    /// The move prompt's preview, as text and kind.
+    fn preview(app: &App) -> (String, PreviewKind) {
+        let Mode::Prompt(prompt) = &app.mode else {
+            panic!("no prompt open");
+        };
+        let preview = prompt.preview.as_ref().expect("a preview");
+        (preview.0.clone(), preview.1)
+    }
+
+    fn prompt_value(app: &App) -> String {
+        let Mode::Prompt(prompt) = &app.mode else {
+            panic!("no prompt open");
+        };
+        prompt.input.value().to_string()
+    }
+
+    #[test]
+    fn the_move_prompt_shows_root_until_something_is_typed() {
+        let (mut app, _dir) = app();
+        select(&mut app, "bike");
+
+        press(&mut app, KeyCode::Char('m'));
+
+        assert_eq!(preview(&app), ("→ root".to_string(), PreviewKind::Existing));
+    }
+
+    #[test]
+    fn the_move_prompt_previews_an_existing_place() {
+        let (mut app, _dir) = app();
+        select(&mut app, "bike");
+
+        press(&mut app, KeyCode::Char('m'));
+        type_text(&mut app, "toolbox");
+
+        assert_eq!(
+            preview(&app),
+            ("→ garage/toolbox".to_string(), PreviewKind::Existing)
+        );
+    }
+
+    #[test]
+    fn the_move_prompt_warns_before_creating_a_place() {
+        let (mut app, _dir) = app();
+        select(&mut app, "bike");
+
+        press(&mut app, KeyCode::Char('m'));
+        type_text(&mut app, "shed");
+        assert_eq!(
+            preview(&app),
+            ("→ new place 'shed' at root".to_string(), PreviewKind::New)
+        );
+
+        for _ in 0..4 {
+            press(&mut app, KeyCode::Backspace);
+        }
+        type_text(&mut app, "attic/chest");
+        assert_eq!(
+            preview(&app),
+            ("→ new place 'chest' in attic".to_string(), PreviewKind::New)
+        );
+    }
+
+    #[test]
+    fn the_move_prompt_flags_a_move_into_itself() {
+        let (mut app, _dir) = app();
+        select(&mut app, "garage");
+
+        press(&mut app, KeyCode::Char('m'));
+        type_text(&mut app, "toolbox");
+
+        let (text, kind) = preview(&app);
+        assert_eq!(kind, PreviewKind::Error);
+        assert!(text.contains("itself"), "{text}");
+    }
+
+    #[test]
+    fn tab_completes_a_place_path() {
+        let (mut app, _dir) = app();
+        select(&mut app, "bike");
+
+        press(&mut app, KeyCode::Char('m'));
+        type_text(&mut app, "too");
+        press(&mut app, KeyCode::Tab);
+
+        assert_eq!(prompt_value(&app), "garage/toolbox");
+        assert_eq!(preview(&app).1, PreviewKind::Existing);
+    }
+
+    #[test]
+    fn tab_cycles_through_matches_and_shift_tab_goes_back() {
+        let (mut app, _dir) = app();
+        db::insert_item(&app.conn, "tool shed", None, None, Kind::Room).unwrap();
+        app.reload().unwrap();
+        select(&mut app, "bike");
+
+        press(&mut app, KeyCode::Char('m'));
+        type_text(&mut app, "tool");
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(prompt_value(&app), "garage/toolbox");
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(prompt_value(&app), "tool shed");
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(prompt_value(&app), "garage/toolbox");
+        press(&mut app, KeyCode::BackTab);
+        assert_eq!(prompt_value(&app), "tool shed");
+    }
+
+    #[test]
+    fn tab_offers_only_places_and_never_what_is_moving() {
+        let (mut app, _dir) = app();
+        select(&mut app, "garage");
+
+        press(&mut app, KeyCode::Char('m'));
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(prompt_value(&app), "attic");
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(prompt_value(&app), "attic", "nothing else to offer");
+    }
+
+    #[test]
+    fn tab_with_no_match_leaves_the_text_alone() {
+        let (mut app, _dir) = app();
+        select(&mut app, "bike");
+
+        press(&mut app, KeyCode::Char('m'));
+        type_text(&mut app, "zzz");
+        press(&mut app, KeyCode::Tab);
+
+        assert_eq!(prompt_value(&app), "zzz");
+    }
+
+    #[test]
+    fn typing_after_tab_starts_a_fresh_completion() {
+        let (mut app, _dir) = app();
+        select(&mut app, "bike");
+
+        press(&mut app, KeyCode::Char('m'));
+        type_text(&mut app, "too");
+        press(&mut app, KeyCode::Tab);
+        type_text(&mut app, "/");
+        press(&mut app, KeyCode::Tab);
+
+        // Nothing inside toolbox is a place, so the text stays as typed.
+        assert_eq!(prompt_value(&app), "garage/toolbox/");
+    }
+
+    #[test]
+    fn a_completed_move_goes_where_the_preview_said() {
+        let (mut app, _dir) = app();
+        select(&mut app, "bike");
+
+        press(&mut app, KeyCode::Char('m'));
+        type_text(&mut app, "too");
+        press(&mut app, KeyCode::Tab);
+        press(&mut app, KeyCode::Enter);
+
+        assert_eq!(
+            app.path_of(id_of(&app, "bike")),
+            ["garage", "toolbox", "bike"]
+        );
+    }
+
+    #[test]
+    fn a_refused_move_keeps_the_prompt_and_what_was_typed() {
+        let (mut app, _dir) = app();
+        select(&mut app, "garage");
+
+        press(&mut app, KeyCode::Char('m'));
+        type_text(&mut app, "toolbox");
+        press(&mut app, KeyCode::Enter);
+
+        assert_eq!(prompt_value(&app), "toolbox");
+        assert_eq!(app.status.as_ref().expect("a status").1, StatusKind::Error);
     }
 }
