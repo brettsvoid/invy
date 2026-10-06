@@ -624,12 +624,12 @@ Removed 1 of 3: hdmi cable
 
 #### Output (JSON)
 ```json
-{"removed": "toolbox", "count": 1, "orphaned": ["hammer", "screwdriver", "wrench"]}
+{"removed": "toolbox", "count": 1, "moved_to_root": ["hammer", "screwdriver", "wrench"]}
 ```
 
 #### Output (CSV)
 ```
-removed,orphaned,count
+removed,moved_to_root,count
 toolbox,hammer;screwdriver;wrench,1
 ```
 
@@ -857,7 +857,7 @@ CREATE INDEX idx_items_kind ON items(kind);
 CREATE INDEX idx_items_place ON items(place_id);
 ```
 
-Note: `ON DELETE SET NULL` implements orphaning behavior for `rm` command.
+Note: `ON DELETE SET NULL` is what moves a removed place's contents to root.
 
 ### Migrations
 

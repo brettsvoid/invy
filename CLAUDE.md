@@ -46,7 +46,7 @@ Any rule about what a change may do (name checks, move checks, what a destinatio
 
 ## Database Schema
 
-Single `items` table with self-referential `place_id` foreign key. ON DELETE SET NULL orphans children when parent is deleted. Names can repeat, even in one place: an item is one physical thing, and identical items are duplicates (see `CONTEXT.md` and `docs/adr/0001-no-item-quantities.md`). `inventory::resolve` turns a name, path or `@id` into items, and treats matching duplicates as interchangeable.
+Single `items` table with self-referential `place_id` foreign key. ON DELETE SET NULL moves a removed place's contents to root. Names can repeat, even in one place: an item is one physical thing, and identical items are duplicates (see `CONTEXT.md` and `docs/adr/0001-no-item-quantities.md`). `inventory::resolve` turns a name, path or `@id` into items, and treats matching duplicates as interchangeable.
 
 Each item also has a `kind`: `room`, `furniture`, `box` or `thing` (the default). The set is a fixed enum in `model.rs`, not user-extensible. It is descriptive only — nothing restricts what can go where.
 

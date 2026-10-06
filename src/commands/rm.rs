@@ -11,7 +11,7 @@ use crate::output::{self, Format};
 
 /// Remove an item from the inventory.
 ///
-/// If the item is a place with children, orphan them to root level.
+/// If the item is a place, what it held moves to root.
 ///
 /// # Arguments
 /// * `item` - Item to remove
@@ -29,7 +29,7 @@ pub fn run(item_ref: &str, all: bool, json: bool, csv: bool, db_path: Option<&Pa
     // Only a single place can hold anything, since duplicates hold nothing.
     let children = db::list_items_in_place(&conn, items[0].id)?;
 
-    // The ON DELETE SET NULL will automatically orphan children to root
+    // ON DELETE SET NULL moves the children to root
     // when we delete the place
     let tx = conn.unchecked_transaction()?;
     for item in &items {

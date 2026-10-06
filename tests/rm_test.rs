@@ -155,3 +155,21 @@ fn remove_place_says_which_contents_are_places() {
         .stdout(predicate::str::contains("Now unsorted:\n  - bike"))
         .stdout(predicate::str::contains("Now at root:\n  - toolbox"));
 }
+
+/// Test: JSON and CSV say what moved to root
+#[test]
+fn remove_reports_what_moved_to_root() {
+    let env = common::TestEnv::new();
+    env.add("toolbox").success();
+    env.add_into("hammer", "toolbox").success();
+    env.add("crate").success();
+    env.add_into("chisel", "crate").success();
+
+    env.run(&["rm", "toolbox", "--json"])
+        .success()
+        .stdout(predicate::str::contains(r#""moved_to_root":["hammer"]"#))
+        .stdout(predicate::str::contains("orphan").not());
+    env.run(&["rm", "crate", "--csv"])
+        .success()
+        .stdout(predicate::str::contains("removed,moved_to_root,count"));
+}

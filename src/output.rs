@@ -175,21 +175,22 @@ pub fn print_moved(
 
 /// Print removed items message.
 ///
-/// `orphaned` is what the removed place held, which is now at root. Things
-/// there are unsorted. Places may stay at root.
+/// `moved_to_root` is what the removed place held. Things at root are
+/// unsorted. Places may stay at root.
 pub fn print_removed(
     name: &str,
     removed: usize,
     matched: usize,
-    orphaned: &[Item],
+    moved_to_root: &[Item],
     format: Format,
 ) -> Result<()> {
-    let orphaned_names: Vec<String> = orphaned.iter().map(|item| item.name.clone()).collect();
+    let names: Vec<String> = moved_to_root.iter().map(|item| item.name.clone()).collect();
     match format {
         Format::Human => {
             println!("Removed{}: {}", counted(removed, matched), name);
-            let (things, places): (Vec<&Item>, Vec<&Item>) =
-                orphaned.iter().partition(|item| item.kind == Kind::Thing);
+            let (things, places): (Vec<&Item>, Vec<&Item>) = moved_to_root
+                .iter()
+                .partition(|item| item.kind == Kind::Thing);
             for (heading, items) in [("Now unsorted:", things), ("Now at root:", places)] {
                 if !items.is_empty() {
                     println!("{heading}");
@@ -205,17 +206,17 @@ pub fn print_removed(
             struct RemovedOutput {
                 removed: String,
                 count: usize,
-                orphaned: Vec<String>,
+                moved_to_root: Vec<String>,
             }
             print_json(&RemovedOutput {
                 removed: name.to_string(),
                 count: removed,
-                orphaned: orphaned_names,
+                moved_to_root: names,
             })
         }
         Format::Csv => {
-            println!("removed,orphaned,count");
-            println!("{},{},{}", name, orphaned_names.join(";"), removed);
+            println!("removed,moved_to_root,count");
+            println!("{},{},{}", name, names.join(";"), removed);
             Ok(())
         }
     }
