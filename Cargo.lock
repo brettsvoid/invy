@@ -553,6 +553,7 @@ dependencies = [
  "clap",
  "csv",
  "directories",
+ "libc",
  "nucleo-matcher",
  "predicates",
  "ratatui",

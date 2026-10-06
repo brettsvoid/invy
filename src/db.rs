@@ -253,7 +253,7 @@ pub fn get_item_path(conn: &Connection, item_id: i64) -> Result<Vec<String>> {
 pub fn list_root_items(conn: &Connection) -> Result<Vec<Item>> {
     let mut stmt = conn.prepare(
         "SELECT id, name, description, place_id, kind, created_at, updated_at
-         FROM items WHERE place_id IS NULL",
+         FROM items WHERE place_id IS NULL ORDER BY name COLLATE NOCASE, id",
     )?;
 
     let items = stmt
@@ -267,7 +267,7 @@ pub fn list_root_items(conn: &Connection) -> Result<Vec<Item>> {
 pub fn list_items_in_place(conn: &Connection, place_id: i64) -> Result<Vec<Item>> {
     let mut stmt = conn.prepare(
         "SELECT id, name, description, place_id, kind, created_at, updated_at
-         FROM items WHERE place_id = ?1",
+         FROM items WHERE place_id = ?1 ORDER BY name COLLATE NOCASE, id",
     )?;
 
     let items = stmt

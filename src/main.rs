@@ -17,6 +17,14 @@ use clap::Parser;
 use cli::{Cli, Commands};
 
 fn main() -> Result<()> {
+    // Rust ignores SIGPIPE, so writing to a pipe that `head` has closed makes
+    // println! panic. Restore the default, and end quietly like other tools.
+    #[cfg(unix)]
+    // SAFETY: called once at startup, before any other thread exists.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+
     let cli = Cli::parse();
 
     model::set_glyph_set(cli.glyphs);

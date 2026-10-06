@@ -74,7 +74,7 @@ fn build_item_tree(items: &[Item], conn: &Connection) -> Vec<TreeItem> {
 
     // Sort children alphabetically (case-insensitive)
     for children in children_map.values_mut() {
-        children.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        children.sort_by_key(|item| (item.name.to_lowercase(), item.id));
     }
 
     // Recursive tree builder

@@ -327,3 +327,45 @@ fn list_recursive_puts_unsorted_things_under_a_heading() {
         .success()
         .stdout(predicate::str::contains("Unsorted (1)\n└── hammer"));
 }
+
+/// Test: output cut short by a closed pipe, as with `| head`, is not a panic
+#[test]
+fn list_into_a_closed_pipe_does_not_panic() {
+    use std::process::Stdio;
+
+    let env = common::TestEnv::new();
+    // Enough JSON to overflow a pipe buffer, so a write has to fail.
+    env.run(&["add", "a cable with a fairly long name", "--count", "3000"])
+        .success();
+
+    let mut child = env
+        .std_cmd()
+        .args(["list", "--json"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(child.stdout.take());
+    let output = child.wait_with_output().unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("panicked"), "{stderr}");
+}
+
+/// Test: a flat list is in name order, ignoring case
+#[test]
+fn list_is_in_name_order() {
+    let env = common::TestEnv::new();
+    env.add("zebra").success();
+    env.add("apple").success();
+    env.add("Mango").success();
+
+    env.run(&["list"])
+        .success()
+        .stdout(predicate::function(|out: &str| {
+            let apple = out.find("apple");
+            let mango = out.find("Mango");
+            let zebra = out.find("zebra");
+            matches!((apple, mango, zebra), (Some(a), Some(m), Some(z)) if a < m && m < z)
+        }));
+}

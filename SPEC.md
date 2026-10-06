@@ -345,6 +345,7 @@ List items, optionally within a specific place.
    (things at root) under an `Unsorted (N)` heading. `--recursive` does the
    same, with the unsorted things as branches of the heading. JSON and CSV
    keep one flat list
+6. Items come in name order, ignoring case
 
 #### Output (human)
 ```

@@ -67,6 +67,18 @@ impl TestEnv {
         cmd
     }
 
+    /// A plain `std::process::Command` set up like `cmd()`, for tests that
+    /// need control over the child's pipes.
+    pub fn std_cmd(&self) -> std::process::Command {
+        let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_invy"));
+        cmd.env_remove("INVY_GLYPHS");
+        cmd.env("HOME", self.home());
+        cmd.env("XDG_CONFIG_HOME", self.config_home());
+        cmd.env("XDG_DATA_HOME", self.data_home());
+        cmd.arg("--db").arg(&self.db_path);
+        cmd
+    }
+
     /// Run invy with the given arguments.
     pub fn run(&self, args: &[&str]) -> assert_cmd::assert::Assert {
         self.cmd().args(args).assert()
